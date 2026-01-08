@@ -287,7 +287,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     await flushActiveTime();
-    if (activeTabId) await updateOverlay(activeTabId, true);
     await updateBadge(null);
     return;
   }

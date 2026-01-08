@@ -14,7 +14,7 @@ let clickThroughOverride = false;
 let overlayInteractionEnabled = false;
 let hoverTimer = null;
 
-const HOVER_REVEAL_DELAY_MS = 2500;
+const HOVER_REVEAL_DELAY_MS = 1500;
 
 const BASE_OVERLAY_STYLE = {
   paddingY: 8,

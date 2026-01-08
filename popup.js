@@ -44,6 +44,27 @@ function renderVersionInfo() {
   if (buildEl) buildEl.textContent = `Built: ${versionName}`;
 }
 
+const OVERLAY_SCALE_RANGE = {
+  min: 0.6,
+  max: 2,
+  step: 0.05,
+};
+
+const OVERLAY_OPACITY_RANGE = {
+  min: 0,
+  max: 1,
+  step: 0.05,
+};
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseOverlayScale(value, fallback) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 async function load() {
   const settingsRes = await chrome.runtime.sendMessage({
     type: "GET_SETTINGS",
@@ -54,9 +75,60 @@ async function load() {
 
   const trackedSites = settingsRes?.settings?.trackedSites || [];
   const overlayEnabled = !!settingsRes?.settings?.overlayEnabled;
+  const overlayScale = Number.isFinite(settingsRes?.settings?.overlayScale)
+    ? settingsRes.settings.overlayScale
+    : 1;
+  const overlayBackgroundColor =
+    settingsRes?.settings?.overlayBackgroundColor || "#7a7a7a";
+  const overlayTextColor =
+    settingsRes?.settings?.overlayTextColor || "#f7f7f7";
+  const overlayBackgroundOpacity = Number.isFinite(
+    settingsRes?.settings?.overlayBackgroundOpacity,
+  )
+    ? settingsRes.settings.overlayBackgroundOpacity
+    : 0.85;
+  const overlayClickThrough = !!settingsRes?.settings?.overlayClickThrough;
 
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
+  const overlaySizeSlider = document.getElementById("overlaySizeSlider");
+  const overlaySizeInput = document.getElementById("overlaySizeInput");
+  if (overlaySizeSlider && overlaySizeInput) {
+    const clamped = clamp(
+      overlayScale,
+      OVERLAY_SCALE_RANGE.min,
+      OVERLAY_SCALE_RANGE.max,
+    );
+    overlaySizeSlider.value = String(clamped);
+    overlaySizeInput.value = String(overlayScale);
+  }
+  const overlayBackgroundColorInput = document.getElementById(
+    "overlayBackgroundColor",
+  );
+  const overlayTextColorInput = document.getElementById("overlayTextColor");
+  const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
+  const overlayOpacityInput = document.getElementById("overlayOpacityInput");
+  const overlayClickThroughInput =
+    document.getElementById("overlayClickThrough");
+
+  if (overlayBackgroundColorInput) {
+    overlayBackgroundColorInput.value = overlayBackgroundColor;
+  }
+  if (overlayTextColorInput) {
+    overlayTextColorInput.value = overlayTextColor;
+  }
+  if (overlayOpacitySlider && overlayOpacityInput) {
+    const clampedOpacity = clamp(
+      overlayBackgroundOpacity,
+      OVERLAY_OPACITY_RANGE.min,
+      OVERLAY_OPACITY_RANGE.max,
+    );
+    overlayOpacitySlider.value = String(clampedOpacity);
+    overlayOpacityInput.value = String(overlayBackgroundOpacity);
+  }
+  if (overlayClickThroughInput) {
+    overlayClickThroughInput.checked = overlayClickThrough;
+  }
 
   const key = timesRes?.key || "";
   document.getElementById("dateKey").textContent = key
@@ -83,18 +155,45 @@ async function load() {
     });
 
   if (!trackedSites.length) {
-    list.innerHTML = `<div class="muted">Add sites above, then Save.</div>`;
+    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
   }
 
   renderVersionInfo();
 }
 
-async function save() {
+let saveTimer = null;
+
+function setStatus(message) {
   const status = document.getElementById("status");
-  status.textContent = "Saving...";
+  status.textContent = message;
+}
+
+async function saveSettings() {
+  setStatus("Saving...");
 
   const overlayEnabled = document.getElementById("overlayEnabled").checked;
   const raw = document.getElementById("trackedSites").value;
+  const overlaySizeSlider = document.getElementById("overlaySizeSlider");
+  const overlaySizeInput = document.getElementById("overlaySizeInput");
+  const overlayBackgroundColorInput = document.getElementById(
+    "overlayBackgroundColor",
+  );
+  const overlayTextColorInput = document.getElementById("overlayTextColor");
+  const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
+  const overlayOpacityInput = document.getElementById("overlayOpacityInput");
+  const overlayClickThroughInput =
+    document.getElementById("overlayClickThrough");
+  const overlayScale = parseOverlayScale(
+    overlaySizeInput?.value,
+    parseOverlayScale(overlaySizeSlider?.value, 1),
+  );
+  const overlayBackgroundColor = overlayBackgroundColorInput?.value;
+  const overlayTextColor = overlayTextColorInput?.value;
+  const overlayBackgroundOpacity = parseOverlayScale(
+    overlayOpacityInput?.value,
+    parseOverlayScale(overlayOpacitySlider?.value, 0.85),
+  );
+  const overlayClickThrough = !!overlayClickThroughInput?.checked;
 
   const trackedSites = raw
     .split("\n")
@@ -105,14 +204,29 @@ async function save() {
     type: "SET_SETTINGS",
     trackedSites,
     overlayEnabled,
+    overlayScale,
+    overlayBackgroundColor,
+    overlayTextColor,
+    overlayBackgroundOpacity,
+    overlayClickThrough,
   });
-  status.textContent = "Saved";
+  setStatus("Saved");
   setTimeout(() => {
-    status.textContent = "";
+    setStatus("");
   }, 900);
 
   await load();
 }
+
+function scheduleSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+  saveTimer = setTimeout(() => {
+    saveSettings();
+  }, 300);
+}
+
 
 async function resetToday() {
   const status = document.getElementById("status");
@@ -125,7 +239,95 @@ async function resetToday() {
   await load();
 }
 
-document.getElementById("save").addEventListener("click", save);
 document.getElementById("reset").addEventListener("click", resetToday);
+
+const overlaySizeSlider = document.getElementById("overlaySizeSlider");
+const overlaySizeInput = document.getElementById("overlaySizeInput");
+const overlayEnabled = document.getElementById("overlayEnabled");
+const trackedSitesInput = document.getElementById("trackedSites");
+const overlayBackgroundColorInput =
+  document.getElementById("overlayBackgroundColor");
+const overlayTextColorInput = document.getElementById("overlayTextColor");
+const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
+const overlayOpacityInput = document.getElementById("overlayOpacityInput");
+const overlayClickThroughInput =
+  document.getElementById("overlayClickThrough");
+if (overlaySizeSlider && overlaySizeInput) {
+  overlaySizeSlider.min = String(OVERLAY_SCALE_RANGE.min);
+  overlaySizeSlider.max = String(OVERLAY_SCALE_RANGE.max);
+  overlaySizeSlider.step = String(OVERLAY_SCALE_RANGE.step);
+
+  overlaySizeSlider.addEventListener("input", () => {
+    const value = parseOverlayScale(overlaySizeSlider.value, 1);
+    overlaySizeInput.value = String(value);
+    scheduleSave();
+  });
+
+  overlaySizeInput.addEventListener("input", () => {
+    const value = parseOverlayScale(overlaySizeInput.value, NaN);
+    if (!Number.isFinite(value)) return;
+    const clamped = clamp(
+      value,
+      OVERLAY_SCALE_RANGE.min,
+      OVERLAY_SCALE_RANGE.max,
+    );
+    overlaySizeSlider.value = String(clamped);
+    scheduleSave();
+  });
+}
+
+if (overlayBackgroundColorInput) {
+  overlayBackgroundColorInput.addEventListener("input", () => {
+    scheduleSave();
+  });
+}
+
+if (overlayTextColorInput) {
+  overlayTextColorInput.addEventListener("input", () => {
+    scheduleSave();
+  });
+}
+
+if (overlayOpacitySlider && overlayOpacityInput) {
+  overlayOpacitySlider.min = String(OVERLAY_OPACITY_RANGE.min);
+  overlayOpacitySlider.max = String(OVERLAY_OPACITY_RANGE.max);
+  overlayOpacitySlider.step = String(OVERLAY_OPACITY_RANGE.step);
+
+  overlayOpacitySlider.addEventListener("input", () => {
+    const value = parseOverlayScale(overlayOpacitySlider.value, 0.85);
+    overlayOpacityInput.value = String(value);
+    scheduleSave();
+  });
+
+  overlayOpacityInput.addEventListener("input", () => {
+    const value = parseOverlayScale(overlayOpacityInput.value, NaN);
+    if (!Number.isFinite(value)) return;
+    const clamped = clamp(
+      value,
+      OVERLAY_OPACITY_RANGE.min,
+      OVERLAY_OPACITY_RANGE.max,
+    );
+    overlayOpacitySlider.value = String(clamped);
+    scheduleSave();
+  });
+}
+
+if (overlayEnabled) {
+  overlayEnabled.addEventListener("change", () => {
+    scheduleSave();
+  });
+}
+
+if (overlayClickThroughInput) {
+  overlayClickThroughInput.addEventListener("change", () => {
+    scheduleSave();
+  });
+}
+
+if (trackedSitesInput) {
+  trackedSitesInput.addEventListener("input", () => {
+    scheduleSave();
+  });
+}
 
 load();

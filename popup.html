@@ -20,6 +20,41 @@
         align-items: center;
         margin: 8px 0;
       }
+      .row.column {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .overlay-size {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .overlay-size input[type="range"] {
+        flex: 1;
+      }
+      .overlay-size input[type="number"] {
+        width: 70px;
+      }
+      .overlay-appearance {
+        display: grid;
+        gap: 8px;
+      }
+      .overlay-appearance .field {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .overlay-appearance input[type="color"] {
+        width: 44px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        background: transparent;
+      }
+      .overlay-appearance input[type="number"] {
+        width: 70px;
+      }
       textarea {
         width: 100%;
         height: 90px;
@@ -71,6 +106,64 @@
       </label>
     </div>
 
+    <div class="row column">
+      <div class="muted">Overlay size</div>
+      <div class="overlay-size">
+        <input
+          id="overlaySizeSlider"
+          type="range"
+          min="0.6"
+          max="2"
+          step="0.05"
+        />
+        <input
+          id="overlaySizeInput"
+          type="number"
+          step="0.05"
+          aria-label="Overlay size value"
+        />
+      </div>
+    </div>
+
+    <div class="row column">
+      <div class="muted">Overlay appearance</div>
+      <div class="overlay-appearance">
+        <label class="field">
+          <span>Background color</span>
+          <input id="overlayBackgroundColor" type="color" />
+        </label>
+        <label class="field">
+          <span>Text color</span>
+          <input id="overlayTextColor" type="color" />
+        </label>
+        <label class="field">
+          <span>Background opacity</span>
+          <input
+            id="overlayOpacitySlider"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+          />
+          <input
+            id="overlayOpacityInput"
+            type="number"
+            min="0"
+            max="1"
+            step="0.05"
+            aria-label="Overlay background opacity"
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>
+        <input id="overlayClickThrough" type="checkbox" />
+        Click-through mode (hover or press Alt+Shift+O to interact)
+      </label>
+    </div>
+
     <div class="row">
       <div style="flex: 1">
         <div class="muted">Tracked sites (one per line, like twitter.com)</div>
@@ -79,7 +172,6 @@
     </div>
 
     <div class="row">
-      <button id="save">Save</button>
       <button id="reset" title="Reset today’s totals">Reset today</button>
       <span id="status" class="muted"></span>
     </div>

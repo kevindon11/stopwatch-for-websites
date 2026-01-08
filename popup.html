@@ -35,6 +35,26 @@
       .overlay-size input[type="number"] {
         width: 70px;
       }
+      .overlay-appearance {
+        display: grid;
+        gap: 8px;
+      }
+      .overlay-appearance .field {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .overlay-appearance input[type="color"] {
+        width: 44px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        background: transparent;
+      }
+      .overlay-appearance input[type="number"] {
+        width: 70px;
+      }
       textarea {
         width: 100%;
         height: 90px;
@@ -103,6 +123,45 @@
           aria-label="Overlay size value"
         />
       </div>
+    </div>
+
+    <div class="row column">
+      <div class="muted">Overlay appearance</div>
+      <div class="overlay-appearance">
+        <label class="field">
+          <span>Background color</span>
+          <input id="overlayBackgroundColor" type="color" />
+        </label>
+        <label class="field">
+          <span>Text color</span>
+          <input id="overlayTextColor" type="color" />
+        </label>
+        <label class="field">
+          <span>Background opacity</span>
+          <input
+            id="overlayOpacitySlider"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+          />
+          <input
+            id="overlayOpacityInput"
+            type="number"
+            min="0"
+            max="1"
+            step="0.05"
+            aria-label="Overlay background opacity"
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>
+        <input id="overlayClickThrough" type="checkbox" />
+        Click-through mode (hover or press Alt+Shift+O to interact)
+      </label>
     </div>
 
     <div class="row">

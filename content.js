@@ -4,6 +4,14 @@ let overlayDismissed = false;
 let dragState = null;
 let overlayObserver = null;
 let overlayScale = 1;
+let overlayTheme = {
+  backgroundColor: "#7a7a7a",
+  textColor: "#f7f7f7",
+  backgroundOpacity: 0.85,
+  clickThrough: false,
+};
+let clickThroughOverride = false;
+let overlayHovering = false;
 
 const BASE_OVERLAY_STYLE = {
   paddingY: 8,
@@ -44,6 +52,46 @@ function applyOverlayScale(scale) {
     button.style.fontSize = `${closeFontSize}px`;
     button.style.lineHeight = `${closeSize}px`;
   }
+}
+
+function hexToRgb(hex) {
+  const normalized = hex.replace("#", "");
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  return { r, g, b };
+}
+
+function applyOverlayTheme(theme) {
+  if (!overlayEl) return;
+  const { backgroundColor, textColor, backgroundOpacity } = theme;
+  const { r, g, b } = hexToRgb(backgroundColor);
+  const clampedOpacity = Math.min(1, Math.max(0, backgroundOpacity));
+  overlayEl.style.background = `rgba(${r}, ${g}, ${b}, ${clampedOpacity})`;
+  overlayEl.style.color = textColor;
+}
+
+function applyClickThroughState() {
+  if (!overlayEl) return;
+  if (!overlayTheme.clickThrough) {
+    overlayEl.style.pointerEvents = "auto";
+    return;
+  }
+  if (clickThroughOverride || overlayHovering) {
+    overlayEl.style.pointerEvents = "auto";
+  } else {
+    overlayEl.style.pointerEvents = "none";
+  }
+}
+
+function setOverlayHoverState(hovered) {
+  if (!overlayEl) return;
+  overlayHovering = hovered;
+  const button = overlayEl.querySelector("#sst_close");
+  if (button) button.style.display = hovered ? "inline-flex" : "none";
+  overlayEl.style.cursor =
+    hovered || !overlayTheme.clickThrough ? "grab" : "default";
+  applyClickThroughState();
 }
 
 function fmtMinutesSeconds(ms) {
@@ -109,18 +157,14 @@ function ensureOverlay() {
 
   attachOverlay();
   applyOverlayScale(overlayScale);
+  applyOverlayTheme(overlayTheme);
+  applyClickThroughState();
   overlayEl.addEventListener("mouseenter", () => {
-    const button = overlayEl.querySelector("#sst_close");
-    if (button) button.style.display = "inline-flex";
-    overlayEl.style.cursor = "grab";
+    setOverlayHoverState(true);
   });
   overlayEl.addEventListener("mouseleave", () => {
-    const button = overlayEl.querySelector("#sst_close");
-    if (button) button.style.display = "none";
-    if (!dragState) {
-      overlayEl.style.cursor = "grab";
-    }
     overlayEl.style.overflow = "hidden";
+    setOverlayHoverState(false);
   });
   overlayEl.querySelector("#sst_close")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -158,6 +202,25 @@ function ensureOverlay() {
     if (!overlayEl || !dragState) return;
     overlayEl.style.cursor = "grab";
     dragState = null;
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!overlayEl || !overlayTheme.clickThrough || clickThroughOverride) return;
+    const rect = overlayEl.getBoundingClientRect();
+    const within =
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+    setOverlayHoverState(within);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (!overlayTheme.clickThrough) return;
+    if (event.altKey && event.shiftKey && event.code === "KeyO") {
+      clickThroughOverride = !clickThroughOverride;
+      applyClickThroughState();
+    }
   });
 
   if (!overlayObserver) {
@@ -201,8 +264,24 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "OVERLAY_SHOW") {
     overlayKey = msg.key || null;
     overlayScale = Number.isFinite(msg.scale) ? msg.scale : 1;
+    overlayTheme = {
+      backgroundColor:
+        typeof msg.backgroundColor === "string"
+          ? msg.backgroundColor
+          : "#7a7a7a",
+      textColor:
+        typeof msg.textColor === "string" ? msg.textColor : "#f7f7f7",
+      backgroundOpacity: Number.isFinite(msg.backgroundOpacity)
+        ? msg.backgroundOpacity
+        : 0.85,
+      clickThrough: !!msg.clickThrough,
+    };
+    clickThroughOverride = false;
+    overlayHovering = false;
     ensureOverlay();
     applyOverlayScale(overlayScale);
+    applyOverlayTheme(overlayTheme);
+    applyClickThroughState();
     if (!overlayDismissed) {
       setOverlayVisible(true);
       refreshOverlayTime();

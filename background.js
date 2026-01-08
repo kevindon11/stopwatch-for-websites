@@ -11,14 +11,62 @@ function todayKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+const DEFAULT_OVERLAY_THEME = {
+  backgroundColor: "#7a7a7a",
+  textColor: "#f7f7f7",
+  backgroundOpacity: 0.85,
+  clickThrough: false,
+};
+
+function normalizeHexColor(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(normalized)) return normalized.toLowerCase();
+  return fallback;
+}
+
+function normalizeOpacity(value, fallback) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(1, Math.max(0, parsed));
+}
+
 async function getSettings() {
-  const { trackedSites, overlayEnabled, overlayScale } =
-    await chrome.storage.sync.get({
-      trackedSites: DEFAULT_SITES,
-      overlayEnabled: true,
-      overlayScale: 1,
-    });
-  return { trackedSites, overlayEnabled, overlayScale };
+  const {
+    trackedSites,
+    overlayEnabled,
+    overlayScale,
+    overlayBackgroundColor,
+    overlayTextColor,
+    overlayBackgroundOpacity,
+    overlayClickThrough,
+  } = await chrome.storage.sync.get({
+    trackedSites: DEFAULT_SITES,
+    overlayEnabled: true,
+    overlayScale: 1,
+    overlayBackgroundColor: DEFAULT_OVERLAY_THEME.backgroundColor,
+    overlayTextColor: DEFAULT_OVERLAY_THEME.textColor,
+    overlayBackgroundOpacity: DEFAULT_OVERLAY_THEME.backgroundOpacity,
+    overlayClickThrough: DEFAULT_OVERLAY_THEME.clickThrough,
+  });
+  return {
+    trackedSites,
+    overlayEnabled,
+    overlayScale,
+    overlayBackgroundColor: normalizeHexColor(
+      overlayBackgroundColor,
+      DEFAULT_OVERLAY_THEME.backgroundColor,
+    ),
+    overlayTextColor: normalizeHexColor(
+      overlayTextColor,
+      DEFAULT_OVERLAY_THEME.textColor,
+    ),
+    overlayBackgroundOpacity: normalizeOpacity(
+      overlayBackgroundOpacity,
+      DEFAULT_OVERLAY_THEME.backgroundOpacity,
+    ),
+    overlayClickThrough: !!overlayClickThrough,
+  };
 }
 
 function normalizeHost(hostname) {
@@ -151,19 +199,28 @@ async function updateBadge(key) {
   chrome.action.setBadgeText({ text });
 }
 
+function sendMessageToTab(tabId, message) {
+  if (!Number.isInteger(tabId)) return;
+  chrome.tabs.sendMessage(tabId, message).catch(() => {});
+}
+
 async function updateOverlay(tabId, forceHide = false) {
-  const { overlayEnabled, trackedSites, overlayScale } = await getSettings();
+  const {
+    overlayEnabled,
+    trackedSites,
+    overlayScale,
+    overlayBackgroundColor,
+    overlayTextColor,
+    overlayBackgroundOpacity,
+    overlayClickThrough,
+  } = await getSettings();
 
   if (!overlayEnabled || forceHide) {
-    if (tabId) {
-      chrome.tabs
-        .sendMessage(tabId, { type: "OVERLAY_HIDE" })
-        .catch(() => {});
-    }
+    sendMessageToTab(tabId, { type: "OVERLAY_HIDE" });
     return;
   }
 
-  if (!tabId) return;
+  if (!Number.isInteger(tabId)) return;
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab || !tab.url) return;
@@ -178,19 +235,19 @@ async function updateOverlay(tabId, forceHide = false) {
   const match = getMatchForUrl(url, trackedSites);
 
   if (!match) {
-    chrome.tabs
-      .sendMessage(tabId, { type: "OVERLAY_HIDE" })
-      .catch(() => {});
+    sendMessageToTab(tabId, { type: "OVERLAY_HIDE" });
     return;
   }
 
-  chrome.tabs
-    .sendMessage(tabId, {
-      type: "OVERLAY_SHOW",
-      key: match.key,
-      scale: overlayScale,
-    })
-    .catch(() => {});
+  sendMessageToTab(tabId, {
+    type: "OVERLAY_SHOW",
+    key: match.key,
+    scale: overlayScale,
+    backgroundColor: overlayBackgroundColor,
+    textColor: overlayTextColor,
+    backgroundOpacity: overlayBackgroundOpacity,
+    clickThrough: overlayClickThrough,
+  });
 }
 
 setInterval(async () => {
@@ -208,9 +265,7 @@ setInterval(async () => {
   if (!tab.active) return;
 
   await flushActiveTime();
-  chrome.tabs
-    .sendMessage(activeTabId, { type: "OVERLAY_TICK" })
-    .catch(() => {});
+  sendMessageToTab(activeTabId, { type: "OVERLAY_TICK" });
 }, 1000);
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
@@ -272,10 +327,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const overlayScale = Number.isFinite(parsedScale) && parsedScale > 0
         ? parsedScale
         : 1;
+      const overlayBackgroundColor = normalizeHexColor(
+        msg.overlayBackgroundColor,
+        DEFAULT_OVERLAY_THEME.backgroundColor,
+      );
+      const overlayTextColor = normalizeHexColor(
+        msg.overlayTextColor,
+        DEFAULT_OVERLAY_THEME.textColor,
+      );
+      const overlayBackgroundOpacity = normalizeOpacity(
+        msg.overlayBackgroundOpacity,
+        DEFAULT_OVERLAY_THEME.backgroundOpacity,
+      );
+      const overlayClickThrough = !!msg.overlayClickThrough;
       await chrome.storage.sync.set({
         trackedSites,
         overlayEnabled,
         overlayScale,
+        overlayBackgroundColor,
+        overlayTextColor,
+        overlayBackgroundOpacity,
+        overlayClickThrough,
       });
 
       const [tab] = await chrome.tabs

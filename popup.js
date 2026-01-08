@@ -80,13 +80,19 @@ function renderTimes(trackedSites, times, key) {
   trackedSites
     .map(normalizeTrackedEntry)
     .filter(Boolean)
+    .map((site) => ({
+      site,
+      time: times[site] || 0,
+    }))
+    .sort((a, b) => b.time - a.time)
     .forEach((site) => {
+      const { site: siteKey, time } = site;
       const row = document.createElement("div");
       row.className = "site";
       const left = document.createElement("div");
-      left.textContent = site;
+      left.textContent = siteKey;
       const right = document.createElement("div");
-      right.textContent = fmt(times[site] || 0);
+      right.textContent = fmt(time);
       row.appendChild(left);
       row.appendChild(right);
       list.appendChild(row);

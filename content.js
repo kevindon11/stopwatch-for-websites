@@ -1,5 +1,5 @@
 let overlayEl = null;
-let overlayHostname = null;
+let overlayKey = null;
 let overlayDismissed = false;
 let dragState = null;
 let overlayObserver = null;
@@ -11,11 +11,10 @@ function fmtMinutesSeconds(ms) {
   return `${totalMinutes}m${String(seconds).padStart(2, "0")}s`;
 }
 
-async function getTodayTimeForHost(hostname) {
+async function getTodayTimeForKey(key) {
   const res = await chrome.runtime.sendMessage({ type: "GET_TODAY_TIMES" });
   if (!res?.ok) return 0;
-  const normalized = (hostname || "").toLowerCase().replace(/^www\./, "");
-  return res.times?.[normalized] || 0;
+  return res.times?.[key] || 0;
 }
 
 function ensureOverlay() {
@@ -41,10 +40,17 @@ function ensureOverlay() {
   overlayEl.style.display = "flex";
   overlayEl.style.alignItems = "center";
   overlayEl.style.gap = "8px";
+  overlayEl.style.flexWrap = "nowrap";
+  overlayEl.style.whiteSpace = "nowrap";
+  overlayEl.style.width = "fit-content";
+  overlayEl.style.maxWidth = "100%";
   overlayEl.style.position = "fixed";
+  overlayEl.style.resize = "none";
+  overlayEl.style.overflow = "hidden";
+  overlayEl.style.minWidth = "88px";
+  overlayEl.style.minHeight = "34px";
 
   overlayEl.innerHTML = `
-    <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums;">0m00s</div>
     <button id="sst_close" aria-label="Hide timer" title="Hide timer" style="
       border: none;
       background: rgba(255,255,255,0.2);
@@ -58,16 +64,39 @@ function ensureOverlay() {
       cursor: pointer;
       display: none;
     ">×</button>
+    <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums; white-space: nowrap;">0m00s</div>
+    <div id="sst_resize" aria-hidden="true" style="
+      width: 10px;
+      height: 10px;
+      margin-left: 2px;
+      border-right: 2px solid rgba(255,255,255,0.6);
+      border-bottom: 2px solid rgba(255,255,255,0.6);
+      display: none;
+      cursor: se-resize;
+      flex: 0 0 auto;
+    "></div>
   `;
 
   attachOverlay();
   overlayEl.addEventListener("mouseenter", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "inline-flex";
+    const resizeHandle = overlayEl.querySelector("#sst_resize");
+    if (resizeHandle) resizeHandle.style.display = "inline-flex";
+    overlayEl.style.resize = "both";
+    overlayEl.style.overflow = "auto";
+    overlayEl.style.cursor = "grab";
   });
   overlayEl.addEventListener("mouseleave", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "none";
+    const resizeHandle = overlayEl.querySelector("#sst_resize");
+    if (resizeHandle) resizeHandle.style.display = "none";
+    if (!dragState) {
+      overlayEl.style.cursor = "grab";
+    }
+    overlayEl.style.resize = "none";
+    overlayEl.style.overflow = "hidden";
   });
   overlayEl.querySelector("#sst_close")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -134,19 +163,19 @@ function setOverlayVisible(visible) {
   if (visible) {
     attachOverlay();
   }
-  overlayEl.style.display = visible ? "block" : "none";
+  overlayEl.style.display = visible ? "flex" : "none";
 }
 
 async function refreshOverlayTime() {
-  if (!overlayEl || !overlayHostname) return;
-  const ms = await getTodayTimeForHost(overlayHostname);
+  if (!overlayEl || !overlayKey) return;
+  const ms = await getTodayTimeForKey(overlayKey);
   const node = overlayEl.querySelector("#sst_time");
   if (node) node.textContent = fmtMinutesSeconds(ms);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "OVERLAY_SHOW") {
-    overlayHostname = msg.hostname || location.hostname;
+    overlayKey = msg.key || null;
     ensureOverlay();
     if (!overlayDismissed) {
       setOverlayVisible(true);

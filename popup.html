@@ -44,6 +44,18 @@
         color: #666;
         font-size: 12px;
       }
+      .version {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #eee;
+        font-size: 12px;
+        color: #555;
+      }
+      .version span {
+        display: block;
+        margin-top: 4px;
+        font-variant-numeric: tabular-nums;
+      }
       label {
         font-size: 13px;
       }
@@ -75,6 +87,12 @@
     <div class="sites">
       <div class="muted" id="dateKey"></div>
       <div id="list"></div>
+    </div>
+
+    <div class="version">
+      <div>Extension info</div>
+      <span id="version"></span>
+      <span id="buildTime"></span>
     </div>
 
     <script src="popup.js"></script>

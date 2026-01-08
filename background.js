@@ -1,7 +1,7 @@
 const DEFAULT_SITES = ["chatgpt.com", "x.com", "youtube.com", "reddit.com"];
 
 let activeTabId = null;
-let activeHostname = null;
+let activeKey = null;
 let lastTickMs = null;
 
 function todayKey(date = new Date()) {
@@ -23,25 +23,67 @@ function normalizeHost(hostname) {
   return (hostname || "").toLowerCase().replace(/^www\./, "");
 }
 
-function hostMatchesList(hostname, list) {
-  const normalized = normalizeHost(hostname);
-  return list.some((entry) => {
-    const value = normalizeHost(entry.trim());
-    if (!value) return false;
-    return normalized === value || normalized.endsWith(`.${value}`);
-  });
+function normalizePath(pathname) {
+  if (!pathname || pathname === "/") return "";
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed === "/" ? "" : trimmed;
 }
 
-async function addTimeForHost(hostname, deltaMs) {
-  if (!hostname || deltaMs <= 0) return;
+function parseTrackedEntry(entry) {
+  const raw = entry?.trim();
+  if (!raw) return null;
+  let url;
+  try {
+    url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+  } catch {
+    return null;
+  }
+  const host = normalizeHost(url.hostname);
+  if (!host) return null;
+  const path = normalizePath(url.pathname);
+  return {
+    host,
+    path,
+    key: `${host}${path}`,
+  };
+}
 
-  const key = todayKey();
-  const storeKey = `time_${key}`;
+function getMatchForUrl(url, list) {
+  const host = normalizeHost(url.hostname);
+  const path = normalizePath(url.pathname);
+  let bestMatch = null;
+
+  list.forEach((entry) => {
+    const parsed = parseTrackedEntry(entry);
+    if (!parsed) return;
+    const hostMatches =
+      host === parsed.host || host.endsWith(`.${parsed.host}`);
+    if (!hostMatches) return;
+    if (parsed.path) {
+      if (!(path === parsed.path || path.startsWith(`${parsed.path}/`))) return;
+    }
+    if (
+      !bestMatch ||
+      parsed.path.length > bestMatch.path.length ||
+      (parsed.path.length === bestMatch.path.length &&
+        parsed.host.length > bestMatch.host.length)
+    ) {
+      bestMatch = parsed;
+    }
+  });
+
+  return bestMatch;
+}
+
+async function addTimeForKey(key, deltaMs) {
+  if (!key || deltaMs <= 0) return;
+
+  const today = todayKey();
+  const storeKey = `time_${today}`;
   const data = await chrome.storage.local.get({ [storeKey]: {} });
   const perHost = data[storeKey] || {};
 
-  const normalized = normalizeHost(hostname);
-  perHost[normalized] = (perHost[normalized] || 0) + deltaMs;
+  perHost[key] = (perHost[key] || 0) + deltaMs;
 
   await chrome.storage.local.set({ [storeKey]: perHost });
 }
@@ -49,8 +91,9 @@ async function addTimeForHost(hostname, deltaMs) {
 async function setActiveFromTab(tab) {
   if (!tab || !tab.id || !tab.url) {
     activeTabId = null;
-    activeHostname = null;
+    activeKey = null;
     lastTickMs = null;
+    await updateBadge(null);
     return;
   }
 
@@ -59,32 +102,51 @@ async function setActiveFromTab(tab) {
     url = new URL(tab.url);
   } catch {
     activeTabId = null;
-    activeHostname = null;
+    activeKey = null;
     lastTickMs = null;
+    await updateBadge(null);
     return;
   }
 
   const { trackedSites } = await getSettings();
-  const hostname = normalizeHost(url.hostname);
+  const match = getMatchForUrl(url, trackedSites);
 
-  if (!hostMatchesList(hostname, trackedSites)) {
+  if (!match) {
     activeTabId = null;
-    activeHostname = null;
+    activeKey = null;
     lastTickMs = null;
+    await updateBadge(null);
     return;
   }
 
   activeTabId = tab.id;
-  activeHostname = hostname;
+  activeKey = match.key;
   lastTickMs = Date.now();
+  await updateBadge(activeKey);
 }
 
 async function flushActiveTime() {
-  if (!activeHostname || !lastTickMs) return;
+  if (!activeKey || !lastTickMs) return;
   const now = Date.now();
   const delta = now - lastTickMs;
   lastTickMs = now;
-  await addTimeForHost(activeHostname, delta);
+  await addTimeForKey(activeKey, delta);
+  await updateBadge(activeKey);
+}
+
+async function updateBadge(key) {
+  if (!key) {
+    chrome.action.setBadgeText({ text: "" });
+    return;
+  }
+  const today = todayKey();
+  const storeKey = `time_${today}`;
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  const totalMs = data[storeKey]?.[key] || 0;
+  const minutes = Math.floor(totalMs / 60000);
+  const text = minutes ? `${minutes}m` : "0m";
+  chrome.action.setBadgeBackgroundColor({ color: "#4caf50" });
+  chrome.action.setBadgeText({ text });
 }
 
 async function updateOverlay(tabId, forceHide = false) {
@@ -111,10 +173,9 @@ async function updateOverlay(tabId, forceHide = false) {
     return;
   }
 
-  const hostname = normalizeHost(url.hostname);
-  const shouldShow = hostMatchesList(hostname, trackedSites);
+  const match = getMatchForUrl(url, trackedSites);
 
-  if (!shouldShow) {
+  if (!match) {
     chrome.tabs
       .sendMessage(tabId, { type: "OVERLAY_HIDE" })
       .catch(() => {});
@@ -122,18 +183,19 @@ async function updateOverlay(tabId, forceHide = false) {
   }
 
   chrome.tabs
-    .sendMessage(tabId, { type: "OVERLAY_SHOW", hostname })
+    .sendMessage(tabId, { type: "OVERLAY_SHOW", key: match.key })
     .catch(() => {});
 }
 
 setInterval(async () => {
-  if (!activeTabId || !activeHostname || !lastTickMs) return;
+  if (!activeTabId || !activeKey || !lastTickMs) return;
 
   const tab = await chrome.tabs.get(activeTabId).catch(() => null);
   if (!tab) {
     activeTabId = null;
-    activeHostname = null;
+    activeKey = null;
     lastTickMs = null;
+    await updateBadge(null);
     return;
   }
 
@@ -168,6 +230,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     await flushActiveTime();
     if (activeTabId) await updateOverlay(activeTabId, true);
+    await updateBadge(null);
     return;
   }
 
@@ -216,6 +279,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await chrome.storage.local.set({ [storeKey]: {} });
 
       lastTickMs = Date.now();
+      await updateBadge(activeKey);
 
       sendResponse({ ok: true });
       return;

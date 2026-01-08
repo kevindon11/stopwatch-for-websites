@@ -161,7 +161,7 @@ function setOverlayVisible(visible) {
   if (visible) {
     attachOverlay();
   }
-  overlayEl.style.display = visible ? "block" : "none";
+  overlayEl.style.display = visible ? "inline-flex" : "none";
 }
 
 async function refreshOverlayTime() {

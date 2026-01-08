@@ -1,4 +1,4 @@
-const DEFAULT_SITES = ["chatgpt.com", "x.com", "youtube.com", "reddit.com"];
+const DEFAULT_SITES = ["chatgpt.com", "chatgpt.com/codex", "github.com", "x.com", "youtube.com", "reddit.com"];
 
 let activeTabId = null;
 let activeKey = null;

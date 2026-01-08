@@ -1,4 +1,4 @@
-const DEFAULT_SITES = ["twitter.com", "x.com", "youtube.com", "reddit.com"];
+const DEFAULT_SITES = ["chatgpt.com", "x.com", "youtube.com", "reddit.com"];
 
 let activeTabId = null;
 let activeHostname = null;

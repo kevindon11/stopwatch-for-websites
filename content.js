@@ -2,6 +2,7 @@ let overlayEl = null;
 let overlayHostname = null;
 let overlayDismissed = false;
 let dragState = null;
+let overlayObserver = null;
 
 function fmtMinutesSeconds(ms) {
   const totalMinutes = Math.floor(ms / 60000);
@@ -59,7 +60,7 @@ function ensureOverlay() {
     ">×</button>
   `;
 
-  document.documentElement.appendChild(overlayEl);
+  attachOverlay();
   overlayEl.addEventListener("mouseenter", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "inline-flex";
@@ -105,11 +106,34 @@ function ensureOverlay() {
     overlayEl.style.cursor = "grab";
     dragState = null;
   });
+
+  if (!overlayObserver) {
+    overlayObserver = new MutationObserver(() => {
+      if (!overlayEl || overlayDismissed) return;
+      if (!overlayEl.isConnected) {
+        attachOverlay();
+        setOverlayVisible(true);
+      }
+    });
+    overlayObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  }
   return overlayEl;
+}
+
+function attachOverlay() {
+  if (!overlayEl) return;
+  if (overlayEl.isConnected) return;
+  (document.body || document.documentElement).appendChild(overlayEl);
 }
 
 function setOverlayVisible(visible) {
   if (!overlayEl) return;
+  if (visible) {
+    attachOverlay();
+  }
   overlayEl.style.display = visible ? "block" : "none";
 }
 

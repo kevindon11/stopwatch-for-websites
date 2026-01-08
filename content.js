@@ -37,15 +37,18 @@ function ensureOverlay() {
   overlayEl.style.boxShadow = "0 8px 24px rgba(0,0,0,0.2)";
   overlayEl.style.userSelect = "none";
   overlayEl.style.cursor = "grab";
-  overlayEl.style.display = "flex";
+  overlayEl.style.display = "inline-flex";
   overlayEl.style.alignItems = "center";
   overlayEl.style.gap = "8px";
+  overlayEl.style.flexWrap = "nowrap";
+  overlayEl.style.whiteSpace = "nowrap";
   overlayEl.style.position = "fixed";
   overlayEl.style.resize = "none";
   overlayEl.style.overflow = "hidden";
+  overlayEl.style.minWidth = "88px";
+  overlayEl.style.minHeight = "34px";
 
   overlayEl.innerHTML = `
-    <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums;">0m00s</div>
     <button id="sst_close" aria-label="Hide timer" title="Hide timer" style="
       border: none;
       background: rgba(255,255,255,0.2);
@@ -59,19 +62,34 @@ function ensureOverlay() {
       cursor: pointer;
       display: none;
     ">×</button>
+    <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums; white-space: nowrap;">0m00s</div>
+    <div id="sst_resize" aria-hidden="true" style="
+      width: 10px;
+      height: 10px;
+      margin-left: 2px;
+      border-right: 2px solid rgba(255,255,255,0.6);
+      border-bottom: 2px solid rgba(255,255,255,0.6);
+      display: none;
+      cursor: se-resize;
+      flex: 0 0 auto;
+    "></div>
   `;
 
   attachOverlay();
   overlayEl.addEventListener("mouseenter", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "inline-flex";
+    const resizeHandle = overlayEl.querySelector("#sst_resize");
+    if (resizeHandle) resizeHandle.style.display = "inline-flex";
     overlayEl.style.resize = "both";
     overlayEl.style.overflow = "auto";
-    overlayEl.style.cursor = "nwse-resize";
+    overlayEl.style.cursor = "grab";
   });
   overlayEl.addEventListener("mouseleave", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "none";
+    const resizeHandle = overlayEl.querySelector("#sst_resize");
+    if (resizeHandle) resizeHandle.style.display = "none";
     if (!dragState) {
       overlayEl.style.cursor = "grab";
     }

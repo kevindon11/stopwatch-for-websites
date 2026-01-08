@@ -37,11 +37,13 @@ function ensureOverlay() {
   overlayEl.style.boxShadow = "0 8px 24px rgba(0,0,0,0.2)";
   overlayEl.style.userSelect = "none";
   overlayEl.style.cursor = "grab";
-  overlayEl.style.display = "inline-flex";
+  overlayEl.style.display = "flex";
   overlayEl.style.alignItems = "center";
   overlayEl.style.gap = "8px";
   overlayEl.style.flexWrap = "nowrap";
   overlayEl.style.whiteSpace = "nowrap";
+  overlayEl.style.width = "fit-content";
+  overlayEl.style.maxWidth = "100%";
   overlayEl.style.position = "fixed";
   overlayEl.style.resize = "none";
   overlayEl.style.overflow = "hidden";
@@ -161,7 +163,7 @@ function setOverlayVisible(visible) {
   if (visible) {
     attachOverlay();
   }
-  overlayEl.style.display = visible ? "block" : "none";
+  overlayEl.style.display = visible ? "flex" : "none";
 }
 
 async function refreshOverlayTime() {

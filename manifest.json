@@ -1,0 +1,22 @@
+{
+  "name": "Site Stopwatch (Today)",
+  "version": "1.0.0",
+  "manifest_version": 3,
+  "description": "Counts up time spent today on selected sites while their tabs are active.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "Site Stopwatch",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

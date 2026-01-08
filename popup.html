@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Site Stopwatch</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        margin: 12px;
+        width: 320px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 8px 0;
+      }
+      textarea {
+        width: 100%;
+        height: 90px;
+        resize: vertical;
+      }
+      button {
+        padding: 6px 10px;
+      }
+      .sites {
+        margin-top: 10px;
+        border-top: 1px solid #ddd;
+        padding-top: 10px;
+      }
+      .site {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px dashed #eee;
+        font-variant-numeric: tabular-nums;
+      }
+      .muted {
+        color: #666;
+        font-size: 12px;
+      }
+      label {
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Site Stopwatch (today)</h1>
+
+    <div class="row">
+      <label>
+        <input id="overlayEnabled" type="checkbox" />
+        Show on-page overlay timer
+      </label>
+    </div>
+
+    <div class="row">
+      <div style="flex: 1">
+        <div class="muted">Tracked sites (one per line, like twitter.com)</div>
+        <textarea id="trackedSites"></textarea>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="reset" title="Reset today’s totals">Reset today</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <div class="sites">
+      <div class="muted" id="dateKey"></div>
+      <div id="list"></div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

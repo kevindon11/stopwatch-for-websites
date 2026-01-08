@@ -204,6 +204,7 @@ function ensureOverlay() {
 
   overlayEl.addEventListener("mousedown", (event) => {
     if (event.button !== 0) return;
+    if (overlayTheme.clickThrough && !overlayInteractionEnabled) return;
     const target = event.target;
     if (target instanceof HTMLElement && target.id === "sst_close") return;
     const rect = overlayEl.getBoundingClientRect();

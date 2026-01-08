@@ -119,8 +119,6 @@ async function load() {
   )
     ? settingsRes.settings.overlayBackgroundOpacity
     : 0.85;
-  const overlayClickThrough = !!settingsRes?.settings?.overlayClickThrough;
-
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
   currentTrackedSites = trackedSites;
@@ -141,9 +139,6 @@ async function load() {
   const overlayTextColorInput = document.getElementById("overlayTextColor");
   const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
   const overlayOpacityInput = document.getElementById("overlayOpacityInput");
-  const overlayClickThroughInput =
-    document.getElementById("overlayClickThrough");
-
   if (overlayBackgroundColorInput) {
     overlayBackgroundColorInput.value = overlayBackgroundColor;
   }
@@ -159,10 +154,6 @@ async function load() {
     overlayOpacitySlider.value = String(clampedOpacity);
     overlayOpacityInput.value = String(overlayBackgroundOpacity);
   }
-  if (overlayClickThroughInput) {
-    overlayClickThroughInput.checked = overlayClickThrough;
-  }
-
   const key = timesRes?.key || "";
   const times = timesRes?.times || {};
   renderTimes(trackedSites, times, key);
@@ -191,8 +182,6 @@ async function saveSettings() {
   const overlayTextColorInput = document.getElementById("overlayTextColor");
   const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
   const overlayOpacityInput = document.getElementById("overlayOpacityInput");
-  const overlayClickThroughInput =
-    document.getElementById("overlayClickThrough");
   const overlayScale = parseOverlayScale(
     overlaySizeInput?.value,
     parseOverlayScale(overlaySizeSlider?.value, 1),
@@ -203,8 +192,6 @@ async function saveSettings() {
     overlayOpacityInput?.value,
     parseOverlayScale(overlayOpacitySlider?.value, 0.85),
   );
-  const overlayClickThrough = !!overlayClickThroughInput?.checked;
-
   const trackedSites = raw
     .split("\n")
     .map((site) => site.trim())
@@ -218,7 +205,6 @@ async function saveSettings() {
     overlayBackgroundColor,
     overlayTextColor,
     overlayBackgroundOpacity,
-    overlayClickThrough,
   });
   setStatus("Saved");
   setTimeout(() => {
@@ -268,8 +254,6 @@ const overlayBackgroundColorInput =
 const overlayTextColorInput = document.getElementById("overlayTextColor");
 const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
 const overlayOpacityInput = document.getElementById("overlayOpacityInput");
-const overlayClickThroughInput =
-  document.getElementById("overlayClickThrough");
 if (overlaySizeSlider && overlaySizeInput) {
   overlaySizeSlider.min = String(OVERLAY_SCALE_RANGE.min);
   overlaySizeSlider.max = String(OVERLAY_SCALE_RANGE.max);
@@ -336,11 +320,6 @@ if (overlayEnabled) {
   });
 }
 
-if (overlayClickThroughInput) {
-  overlayClickThroughInput.addEventListener("change", () => {
-    scheduleSave();
-  });
-}
 
 if (trackedSitesInput) {
   trackedSitesInput.addEventListener("input", () => {

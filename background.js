@@ -39,7 +39,6 @@ async function getSettings() {
     overlayBackgroundColor,
     overlayTextColor,
     overlayBackgroundOpacity,
-    overlayClickThrough,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
     overlayEnabled: true,
@@ -47,7 +46,6 @@ async function getSettings() {
     overlayBackgroundColor: DEFAULT_OVERLAY_THEME.backgroundColor,
     overlayTextColor: DEFAULT_OVERLAY_THEME.textColor,
     overlayBackgroundOpacity: DEFAULT_OVERLAY_THEME.backgroundOpacity,
-    overlayClickThrough: DEFAULT_OVERLAY_THEME.clickThrough,
   });
   return {
     trackedSites,
@@ -65,7 +63,7 @@ async function getSettings() {
       overlayBackgroundOpacity,
       DEFAULT_OVERLAY_THEME.backgroundOpacity,
     ),
-    overlayClickThrough: !!overlayClickThrough,
+    overlayClickThrough: true,
   };
 }
 
@@ -212,7 +210,6 @@ async function updateOverlay(tabId, forceHide = false) {
     overlayBackgroundColor,
     overlayTextColor,
     overlayBackgroundOpacity,
-    overlayClickThrough,
   } = await getSettings();
 
   if (!overlayEnabled || forceHide) {
@@ -246,7 +243,7 @@ async function updateOverlay(tabId, forceHide = false) {
     backgroundColor: overlayBackgroundColor,
     textColor: overlayTextColor,
     backgroundOpacity: overlayBackgroundOpacity,
-    clickThrough: overlayClickThrough,
+    clickThrough: true,
   });
 }
 
@@ -339,7 +336,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         msg.overlayBackgroundOpacity,
         DEFAULT_OVERLAY_THEME.backgroundOpacity,
       );
-      const overlayClickThrough = !!msg.overlayClickThrough;
       await chrome.storage.sync.set({
         trackedSites,
         overlayEnabled,
@@ -347,7 +343,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         overlayBackgroundColor,
         overlayTextColor,
         overlayBackgroundOpacity,
-        overlayClickThrough,
       });
 
       const [tab] = await chrome.tabs

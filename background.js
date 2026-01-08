@@ -15,7 +15,7 @@ const DEFAULT_OVERLAY_THEME = {
   backgroundColor: "#7a7a7a",
   textColor: "#f7f7f7",
   backgroundOpacity: 0.85,
-  clickThrough: false,
+  clickThrough: true,
 };
 
 function normalizeHexColor(value, fallback) {

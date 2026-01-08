@@ -106,6 +106,30 @@
       </label>
     </div>
 
+    <div class="row">
+      <label>
+        <input id="overlayClickThrough" type="checkbox" />
+        Click-through mode (hover 2.5s or press Alt+Shift+O to interact)
+      </label>
+    </div>
+
+    <div class="row">
+      <div style="flex: 1">
+        <div class="muted">Tracked sites (one per line, like twitter.com)</div>
+        <textarea id="trackedSites"></textarea>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="reset" title="Reset today’s totals">Reset today</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <div class="sites">
+      <div class="muted" id="dateKey"></div>
+      <div id="list"></div>
+    </div>
+
     <div class="row column">
       <div class="muted">Overlay size</div>
       <div class="overlay-size">
@@ -155,30 +179,6 @@
           />
         </label>
       </div>
-    </div>
-
-    <div class="row">
-      <label>
-        <input id="overlayClickThrough" type="checkbox" />
-        Click-through mode (hover or press Alt+Shift+O to interact)
-      </label>
-    </div>
-
-    <div class="row">
-      <div style="flex: 1">
-        <div class="muted">Tracked sites (one per line, like twitter.com)</div>
-        <textarea id="trackedSites"></textarea>
-      </div>
-    </div>
-
-    <div class="row">
-      <button id="reset" title="Reset today’s totals">Reset today</button>
-      <span id="status" class="muted"></span>
-    </div>
-
-    <div class="sites">
-      <div class="muted" id="dateKey"></div>
-      <div id="list"></div>
     </div>
 
     <div class="version">

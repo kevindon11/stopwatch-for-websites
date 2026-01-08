@@ -8,10 +8,13 @@ let overlayTheme = {
   backgroundColor: "#7a7a7a",
   textColor: "#f7f7f7",
   backgroundOpacity: 0.85,
-  clickThrough: false,
+  clickThrough: true,
 };
 let clickThroughOverride = false;
-let overlayHovering = false;
+let overlayInteractionEnabled = false;
+let hoverTimer = null;
+
+const HOVER_REVEAL_DELAY_MS = 2500;
 
 const BASE_OVERLAY_STYLE = {
   paddingY: 8,
@@ -50,7 +53,6 @@ function applyOverlayScale(scale) {
     button.style.width = `${closeSize}px`;
     button.style.height = `${closeSize}px`;
     button.style.fontSize = `${closeFontSize}px`;
-    button.style.lineHeight = `${closeSize}px`;
   }
 }
 
@@ -77,21 +79,43 @@ function applyClickThroughState() {
     overlayEl.style.pointerEvents = "auto";
     return;
   }
-  if (clickThroughOverride || overlayHovering) {
+  if (clickThroughOverride || overlayInteractionEnabled) {
     overlayEl.style.pointerEvents = "auto";
   } else {
     overlayEl.style.pointerEvents = "none";
   }
 }
 
-function setOverlayHoverState(hovered) {
+function setOverlayInteractionState(enabled) {
   if (!overlayEl) return;
-  overlayHovering = hovered;
+  overlayInteractionEnabled = enabled;
   const button = overlayEl.querySelector("#sst_close");
-  if (button) button.style.display = hovered ? "inline-flex" : "none";
+  if (button) button.style.display = enabled ? "inline-flex" : "none";
   overlayEl.style.cursor =
-    hovered || !overlayTheme.clickThrough ? "grab" : "default";
+    enabled || !overlayTheme.clickThrough ? "grab" : "default";
   applyClickThroughState();
+}
+
+function clearHoverTimer() {
+  if (hoverTimer) {
+    clearTimeout(hoverTimer);
+    hoverTimer = null;
+  }
+}
+
+function scheduleHoverReveal() {
+  if (hoverTimer || overlayInteractionEnabled) return;
+  hoverTimer = setTimeout(() => {
+    hoverTimer = null;
+    setOverlayInteractionState(true);
+  }, HOVER_REVEAL_DELAY_MS);
+}
+
+function handleHoverExit() {
+  clearHoverTimer();
+  if (overlayInteractionEnabled) {
+    setOverlayInteractionState(false);
+  }
 }
 
 function fmtMinutesSeconds(ms) {
@@ -147,10 +171,12 @@ function ensureOverlay() {
       height: 18px;
       border-radius: 50%;
       font-size: 12px;
-      line-height: 18px;
+      line-height: 1;
       padding: 0;
       cursor: pointer;
       display: none;
+      align-items: center;
+      justify-content: center;
     ">×</button>
     <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums; white-space: nowrap;">0m00s</div>
   `;
@@ -160,11 +186,15 @@ function ensureOverlay() {
   applyOverlayTheme(overlayTheme);
   applyClickThroughState();
   overlayEl.addEventListener("mouseenter", () => {
-    setOverlayHoverState(true);
+    if (!overlayTheme.clickThrough) {
+      setOverlayInteractionState(true);
+    }
   });
   overlayEl.addEventListener("mouseleave", () => {
     overlayEl.style.overflow = "hidden";
-    setOverlayHoverState(false);
+    if (!overlayTheme.clickThrough) {
+      setOverlayInteractionState(false);
+    }
   });
   overlayEl.querySelector("#sst_close")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -212,13 +242,22 @@ function ensureOverlay() {
       event.clientX <= rect.right &&
       event.clientY >= rect.top &&
       event.clientY <= rect.bottom;
-    setOverlayHoverState(within);
+    if (within) {
+      scheduleHoverReveal();
+    } else {
+      handleHoverExit();
+    }
   });
 
   document.addEventListener("keydown", (event) => {
     if (!overlayTheme.clickThrough) return;
     if (event.altKey && event.shiftKey && event.code === "KeyO") {
       clickThroughOverride = !clickThroughOverride;
+      if (clickThroughOverride) {
+        setOverlayInteractionState(true);
+      } else {
+        setOverlayInteractionState(false);
+      }
       applyClickThroughState();
     }
   });
@@ -277,7 +316,8 @@ chrome.runtime.onMessage.addListener((msg) => {
       clickThrough: !!msg.clickThrough,
     };
     clickThroughOverride = false;
-    overlayHovering = false;
+    overlayInteractionEnabled = false;
+    clearHoverTimer();
     ensureOverlay();
     applyOverlayScale(overlayScale);
     applyOverlayTheme(overlayTheme);

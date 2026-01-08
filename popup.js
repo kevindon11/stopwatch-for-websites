@@ -65,6 +65,38 @@ function parseOverlayScale(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+let currentTrackedSites = [];
+
+function renderTimes(trackedSites, times, key) {
+  const dateKey = document.getElementById("dateKey");
+  if (dateKey) {
+    dateKey.textContent = key ? `Totals for ${key}` : "Totals for today";
+  }
+
+  const list = document.getElementById("list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  trackedSites
+    .map(normalizeTrackedEntry)
+    .filter(Boolean)
+    .forEach((site) => {
+      const row = document.createElement("div");
+      row.className = "site";
+      const left = document.createElement("div");
+      left.textContent = site;
+      const right = document.createElement("div");
+      right.textContent = fmt(times[site] || 0);
+      row.appendChild(left);
+      row.appendChild(right);
+      list.appendChild(row);
+    });
+
+  if (!trackedSites.length) {
+    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
+  }
+}
+
 async function load() {
   const settingsRes = await chrome.runtime.sendMessage({
     type: "GET_SETTINGS",
@@ -91,6 +123,7 @@ async function load() {
 
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
+  currentTrackedSites = trackedSites;
   const overlaySizeSlider = document.getElementById("overlaySizeSlider");
   const overlaySizeInput = document.getElementById("overlaySizeInput");
   if (overlaySizeSlider && overlaySizeInput) {
@@ -131,37 +164,14 @@ async function load() {
   }
 
   const key = timesRes?.key || "";
-  document.getElementById("dateKey").textContent = key
-    ? `Totals for ${key}`
-    : "Totals for today";
-
   const times = timesRes?.times || {};
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-
-  trackedSites
-    .map(normalizeTrackedEntry)
-    .filter(Boolean)
-    .forEach((site) => {
-      const row = document.createElement("div");
-      row.className = "site";
-      const left = document.createElement("div");
-      left.textContent = site;
-      const right = document.createElement("div");
-      right.textContent = fmt(times[site] || 0);
-      row.appendChild(left);
-      row.appendChild(right);
-      list.appendChild(row);
-    });
-
-  if (!trackedSites.length) {
-    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
-  }
+  renderTimes(trackedSites, times, key);
 
   renderVersionInfo();
 }
 
 let saveTimer = null;
+let refreshTimer = null;
 
 function setStatus(message) {
   const status = document.getElementById("status");
@@ -237,6 +247,14 @@ async function resetToday() {
     status.textContent = "";
   }, 900);
   await load();
+}
+
+async function refreshTimes() {
+  const timesRes = await chrome.runtime.sendMessage({
+    type: "GET_TODAY_TIMES",
+  });
+  if (!timesRes?.ok) return;
+  renderTimes(currentTrackedSites, timesRes.times || {}, timesRes.key || "");
 }
 
 document.getElementById("reset").addEventListener("click", resetToday);
@@ -330,4 +348,7 @@ if (trackedSitesInput) {
   });
 }
 
-load();
+load().then(() => {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(refreshTimes, 1000);
+});

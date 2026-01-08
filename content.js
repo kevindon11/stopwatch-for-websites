@@ -3,9 +3,11 @@ let overlayHostname = null;
 let overlayDismissed = false;
 let dragState = null;
 
-function fmtMinutes(ms) {
+function fmtMinutesSeconds(ms) {
   const totalMinutes = Math.floor(ms / 60000);
-  return `${totalMinutes}m`;
+  const totalSeconds = Math.floor(ms / 1000);
+  const seconds = totalSeconds % 60;
+  return `${totalMinutes}m${String(seconds).padStart(2, "0")}s`;
 }
 
 async function getTodayTimeForHost(hostname) {
@@ -21,7 +23,7 @@ function ensureOverlay() {
   overlayEl = document.createElement("div");
   overlayEl.style.position = "fixed";
   overlayEl.style.top = "12px";
-  overlayEl.style.left = "50%";
+  overlayEl.style.left = "25%";
   overlayEl.style.transform = "translateX(-50%)";
   overlayEl.style.zIndex = "2147483647";
   overlayEl.style.padding = "8px 12px";
@@ -41,7 +43,7 @@ function ensureOverlay() {
   overlayEl.style.position = "fixed";
 
   overlayEl.innerHTML = `
-    <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums;">0m</div>
+    <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums;">0m00s</div>
     <button id="sst_close" aria-label="Hide timer" title="Hide timer" style="
       border: none;
       background: rgba(255,255,255,0.2);
@@ -115,7 +117,7 @@ async function refreshOverlayTime() {
   if (!overlayEl || !overlayHostname) return;
   const ms = await getTodayTimeForHost(overlayHostname);
   const node = overlayEl.querySelector("#sst_time");
-  if (node) node.textContent = fmtMinutes(ms);
+  if (node) node.textContent = fmtMinutesSeconds(ms);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -138,3 +140,5 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
   }
 });
+
+chrome.runtime.sendMessage({ type: "REQUEST_OVERLAY_STATE" }).catch(() => {});

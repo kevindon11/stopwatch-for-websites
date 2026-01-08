@@ -218,6 +218,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       lastTickMs = Date.now();
 
       sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "REQUEST_OVERLAY_STATE") {
+      const tabId = sender?.tab?.id;
+      if (tabId) await updateOverlay(tabId);
+      sendResponse({ ok: true });
     }
   })();
 

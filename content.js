@@ -102,7 +102,6 @@ function ensureOverlay() {
     event.stopPropagation();
     overlayDismissed = true;
     setOverlayVisible(false);
-    chrome.runtime.sendMessage({ type: "OVERLAY_DISMISS" }).catch(() => {});
   });
 
   overlayEl.addEventListener("mousedown", (event) => {
@@ -178,7 +177,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "OVERLAY_SHOW") {
     overlayKey = msg.key || null;
     ensureOverlay();
-    overlayDismissed = false;
     if (!overlayDismissed) {
       setOverlayVisible(true);
       refreshOverlayTime();
@@ -187,14 +185,6 @@ chrome.runtime.onMessage.addListener((msg) => {
 
   if (msg?.type === "OVERLAY_HIDE") {
     setOverlayVisible(false);
-  }
-
-  if (msg?.type === "OVERLAY_RESET") {
-    overlayDismissed = false;
-    if (overlayKey) {
-      setOverlayVisible(true);
-      refreshOverlayTime();
-    }
   }
 
   if (msg?.type === "OVERLAY_TICK") {

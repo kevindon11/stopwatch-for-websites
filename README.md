@@ -1,5 +1,5 @@
 # stopwatch-for-websites
-
+v3
 Chrome extension that tracks how long you spend on selected sites each day. It
 counts only when a tracked tab is active and optionally shows an on-page overlay
 timer.

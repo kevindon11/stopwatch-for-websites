@@ -112,15 +112,21 @@ async function load() {
     });
 
   if (!trackedSites.length) {
-    list.innerHTML = `<div class="muted">Add sites above, then Save.</div>`;
+    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
   }
 
   renderVersionInfo();
 }
 
-async function save() {
+let saveTimer = null;
+
+function setStatus(message) {
   const status = document.getElementById("status");
-  status.textContent = "Saving...";
+  status.textContent = message;
+}
+
+async function saveSettings() {
+  setStatus("Saving...");
 
   const overlayEnabled = document.getElementById("overlayEnabled").checked;
   const raw = document.getElementById("trackedSites").value;
@@ -142,13 +148,23 @@ async function save() {
     overlayEnabled,
     overlayScale,
   });
-  status.textContent = "Saved";
+  setStatus("Saved");
   setTimeout(() => {
-    status.textContent = "";
+    setStatus("");
   }, 900);
 
   await load();
 }
+
+function scheduleSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+  saveTimer = setTimeout(() => {
+    saveSettings();
+  }, 300);
+}
+
 
 async function resetToday() {
   const status = document.getElementById("status");
@@ -161,11 +177,12 @@ async function resetToday() {
   await load();
 }
 
-document.getElementById("save").addEventListener("click", save);
 document.getElementById("reset").addEventListener("click", resetToday);
 
 const overlaySizeSlider = document.getElementById("overlaySizeSlider");
 const overlaySizeInput = document.getElementById("overlaySizeInput");
+const overlayEnabled = document.getElementById("overlayEnabled");
+const trackedSitesInput = document.getElementById("trackedSites");
 if (overlaySizeSlider && overlaySizeInput) {
   overlaySizeSlider.min = String(OVERLAY_SCALE_RANGE.min);
   overlaySizeSlider.max = String(OVERLAY_SCALE_RANGE.max);
@@ -174,6 +191,7 @@ if (overlaySizeSlider && overlaySizeInput) {
   overlaySizeSlider.addEventListener("input", () => {
     const value = parseOverlayScale(overlaySizeSlider.value, 1);
     overlaySizeInput.value = String(value);
+    scheduleSave();
   });
 
   overlaySizeInput.addEventListener("input", () => {
@@ -185,6 +203,19 @@ if (overlaySizeSlider && overlaySizeInput) {
       OVERLAY_SCALE_RANGE.max,
     );
     overlaySizeSlider.value = String(clamped);
+    scheduleSave();
+  });
+}
+
+if (overlayEnabled) {
+  overlayEnabled.addEventListener("change", () => {
+    scheduleSave();
+  });
+}
+
+if (trackedSitesInput) {
+  trackedSitesInput.addEventListener("input", () => {
+    scheduleSave();
   });
 }
 

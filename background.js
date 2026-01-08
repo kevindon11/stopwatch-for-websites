@@ -1,8 +1,15 @@
-const DEFAULT_SITES = ["chatgpt.com", "x.com", "youtube.com", "reddit.com"];
+const DEFAULT_SITES = [
+  "chatgpt.com",
+  "x.com",
+  "youtube.com",
+  "reddit.com",
+  "github.com",
+];
 
 let activeTabId = null;
 let activeKey = null;
 let lastTickMs = null;
+const dismissedTabs = new Set();
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -162,6 +169,10 @@ async function updateOverlay(tabId, forceHide = false) {
   }
 
   if (!tabId) return;
+  if (dismissedTabs.has(tabId)) {
+    chrome.tabs.sendMessage(tabId, { type: "OVERLAY_HIDE" }).catch(() => {});
+    return;
+  }
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab || !tab.url) return;
@@ -226,6 +237,17 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  dismissedTabs.delete(tabId);
+});
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab?.id) return;
+  dismissedTabs.delete(tab.id);
+  chrome.tabs.sendMessage(tab.id, { type: "OVERLAY_RESET" }).catch(() => {});
+  await updateOverlay(tab.id);
+});
+
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     await flushActiveTime();
@@ -281,6 +303,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       lastTickMs = Date.now();
       await updateBadge(activeKey);
 
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "OVERLAY_DISMISS") {
+      const tabId = sender?.tab?.id;
+      if (tabId) {
+        dismissedTabs.add(tabId);
+        chrome.tabs.sendMessage(tabId, { type: "OVERLAY_HIDE" }).catch(() => {});
+      }
       sendResponse({ ok: true });
       return;
     }

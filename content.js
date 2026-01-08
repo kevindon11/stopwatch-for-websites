@@ -3,6 +3,48 @@ let overlayKey = null;
 let overlayDismissed = false;
 let dragState = null;
 let overlayObserver = null;
+let overlayScale = 1;
+
+const BASE_OVERLAY_STYLE = {
+  paddingY: 8,
+  paddingX: 12,
+  borderRadius: 12,
+  fontSize: 13,
+  gap: 8,
+  minHeight: 34,
+  closeSize: 18,
+  closeFontSize: 12,
+};
+
+function applyOverlayScale(scale) {
+  if (!overlayEl) return;
+  const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  overlayScale = safeScale;
+  const paddingY = Math.round(BASE_OVERLAY_STYLE.paddingY * safeScale);
+  const paddingX = Math.round(BASE_OVERLAY_STYLE.paddingX * safeScale);
+  const borderRadius = Math.round(BASE_OVERLAY_STYLE.borderRadius * safeScale);
+  const fontSize = Math.round(BASE_OVERLAY_STYLE.fontSize * safeScale);
+  const gap = Math.round(BASE_OVERLAY_STYLE.gap * safeScale);
+  const minHeight = Math.round(BASE_OVERLAY_STYLE.minHeight * safeScale);
+  const closeSize = Math.round(BASE_OVERLAY_STYLE.closeSize * safeScale);
+  const closeFontSize = Math.round(
+    BASE_OVERLAY_STYLE.closeFontSize * safeScale,
+  );
+
+  overlayEl.style.padding = `${paddingY}px ${paddingX}px`;
+  overlayEl.style.borderRadius = `${borderRadius}px`;
+  overlayEl.style.fontSize = `${fontSize}px`;
+  overlayEl.style.gap = `${gap}px`;
+  overlayEl.style.minHeight = `${minHeight}px`;
+
+  const button = overlayEl.querySelector("#sst_close");
+  if (button) {
+    button.style.width = `${closeSize}px`;
+    button.style.height = `${closeSize}px`;
+    button.style.fontSize = `${closeFontSize}px`;
+    button.style.lineHeight = `${closeSize}px`;
+  }
+}
 
 function fmtMinutesSeconds(ms) {
   const totalMinutes = Math.floor(ms / 60000);
@@ -45,9 +87,7 @@ function ensureOverlay() {
   overlayEl.style.width = "fit-content";
   overlayEl.style.maxWidth = "100%";
   overlayEl.style.position = "fixed";
-  overlayEl.style.resize = "none";
   overlayEl.style.overflow = "hidden";
-  overlayEl.style.minWidth = "88px";
   overlayEl.style.minHeight = "34px";
 
   overlayEl.innerHTML = `
@@ -65,37 +105,21 @@ function ensureOverlay() {
       display: none;
     ">×</button>
     <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums; white-space: nowrap;">0m00s</div>
-    <div id="sst_resize" aria-hidden="true" style="
-      width: 10px;
-      height: 10px;
-      margin-left: 2px;
-      border-right: 2px solid rgba(255,255,255,0.6);
-      border-bottom: 2px solid rgba(255,255,255,0.6);
-      display: none;
-      cursor: se-resize;
-      flex: 0 0 auto;
-    "></div>
   `;
 
   attachOverlay();
+  applyOverlayScale(overlayScale);
   overlayEl.addEventListener("mouseenter", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "inline-flex";
-    const resizeHandle = overlayEl.querySelector("#sst_resize");
-    if (resizeHandle) resizeHandle.style.display = "inline-flex";
-    overlayEl.style.resize = "both";
-    overlayEl.style.overflow = "auto";
     overlayEl.style.cursor = "grab";
   });
   overlayEl.addEventListener("mouseleave", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "none";
-    const resizeHandle = overlayEl.querySelector("#sst_resize");
-    if (resizeHandle) resizeHandle.style.display = "none";
     if (!dragState) {
       overlayEl.style.cursor = "grab";
     }
-    overlayEl.style.resize = "none";
     overlayEl.style.overflow = "hidden";
   });
   overlayEl.querySelector("#sst_close")?.addEventListener("click", (event) => {
@@ -176,7 +200,9 @@ async function refreshOverlayTime() {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "OVERLAY_SHOW") {
     overlayKey = msg.key || null;
+    overlayScale = Number.isFinite(msg.scale) ? msg.scale : 1;
     ensureOverlay();
+    applyOverlayScale(overlayScale);
     if (!overlayDismissed) {
       setOverlayVisible(true);
       refreshOverlayTime();

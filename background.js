@@ -12,11 +12,13 @@ function todayKey(date = new Date()) {
 }
 
 async function getSettings() {
-  const { trackedSites, overlayEnabled } = await chrome.storage.sync.get({
-    trackedSites: DEFAULT_SITES,
-    overlayEnabled: true,
-  });
-  return { trackedSites, overlayEnabled };
+  const { trackedSites, overlayEnabled, overlayScale } =
+    await chrome.storage.sync.get({
+      trackedSites: DEFAULT_SITES,
+      overlayEnabled: true,
+      overlayScale: 1,
+    });
+  return { trackedSites, overlayEnabled, overlayScale };
 }
 
 function normalizeHost(hostname) {
@@ -145,12 +147,12 @@ async function updateBadge(key) {
   const totalMs = data[storeKey]?.[key] || 0;
   const minutes = Math.floor(totalMs / 60000);
   const text = minutes ? `${minutes}m` : "0m";
-  chrome.action.setBadgeBackgroundColor({ color: "#4caf50" });
+  chrome.action.setBadgeBackgroundColor({ color: "#00539c" });
   chrome.action.setBadgeText({ text });
 }
 
 async function updateOverlay(tabId, forceHide = false) {
-  const { overlayEnabled, trackedSites } = await getSettings();
+  const { overlayEnabled, trackedSites, overlayScale } = await getSettings();
 
   if (!overlayEnabled || forceHide) {
     if (tabId) {
@@ -183,7 +185,11 @@ async function updateOverlay(tabId, forceHide = false) {
   }
 
   chrome.tabs
-    .sendMessage(tabId, { type: "OVERLAY_SHOW", key: match.key })
+    .sendMessage(tabId, {
+      type: "OVERLAY_SHOW",
+      key: match.key,
+      scale: overlayScale,
+    })
     .catch(() => {});
 }
 
@@ -262,7 +268,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ? msg.trackedSites
         : DEFAULT_SITES;
       const overlayEnabled = !!msg.overlayEnabled;
-      await chrome.storage.sync.set({ trackedSites, overlayEnabled });
+      const parsedScale = Number.parseFloat(msg.overlayScale);
+      const overlayScale = Number.isFinite(parsedScale) && parsedScale > 0
+        ? parsedScale
+        : 1;
+      await chrome.storage.sync.set({
+        trackedSites,
+        overlayEnabled,
+        overlayScale,
+      });
 
       const [tab] = await chrome.tabs
         .query({ active: true, currentWindow: true })

@@ -44,6 +44,21 @@ function renderVersionInfo() {
   if (buildEl) buildEl.textContent = `Built: ${versionName}`;
 }
 
+const OVERLAY_SCALE_RANGE = {
+  min: 0.6,
+  max: 2,
+  step: 0.05,
+};
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseOverlayScale(value, fallback) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 async function load() {
   const settingsRes = await chrome.runtime.sendMessage({
     type: "GET_SETTINGS",
@@ -54,9 +69,23 @@ async function load() {
 
   const trackedSites = settingsRes?.settings?.trackedSites || [];
   const overlayEnabled = !!settingsRes?.settings?.overlayEnabled;
+  const overlayScale = Number.isFinite(settingsRes?.settings?.overlayScale)
+    ? settingsRes.settings.overlayScale
+    : 1;
 
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
+  const overlaySizeSlider = document.getElementById("overlaySizeSlider");
+  const overlaySizeInput = document.getElementById("overlaySizeInput");
+  if (overlaySizeSlider && overlaySizeInput) {
+    const clamped = clamp(
+      overlayScale,
+      OVERLAY_SCALE_RANGE.min,
+      OVERLAY_SCALE_RANGE.max,
+    );
+    overlaySizeSlider.value = String(clamped);
+    overlaySizeInput.value = String(overlayScale);
+  }
 
   const key = timesRes?.key || "";
   document.getElementById("dateKey").textContent = key
@@ -95,6 +124,12 @@ async function save() {
 
   const overlayEnabled = document.getElementById("overlayEnabled").checked;
   const raw = document.getElementById("trackedSites").value;
+  const overlaySizeSlider = document.getElementById("overlaySizeSlider");
+  const overlaySizeInput = document.getElementById("overlaySizeInput");
+  const overlayScale = parseOverlayScale(
+    overlaySizeInput?.value,
+    parseOverlayScale(overlaySizeSlider?.value, 1),
+  );
 
   const trackedSites = raw
     .split("\n")
@@ -105,6 +140,7 @@ async function save() {
     type: "SET_SETTINGS",
     trackedSites,
     overlayEnabled,
+    overlayScale,
   });
   status.textContent = "Saved";
   setTimeout(() => {
@@ -127,5 +163,29 @@ async function resetToday() {
 
 document.getElementById("save").addEventListener("click", save);
 document.getElementById("reset").addEventListener("click", resetToday);
+
+const overlaySizeSlider = document.getElementById("overlaySizeSlider");
+const overlaySizeInput = document.getElementById("overlaySizeInput");
+if (overlaySizeSlider && overlaySizeInput) {
+  overlaySizeSlider.min = String(OVERLAY_SCALE_RANGE.min);
+  overlaySizeSlider.max = String(OVERLAY_SCALE_RANGE.max);
+  overlaySizeSlider.step = String(OVERLAY_SCALE_RANGE.step);
+
+  overlaySizeSlider.addEventListener("input", () => {
+    const value = parseOverlayScale(overlaySizeSlider.value, 1);
+    overlaySizeInput.value = String(value);
+  });
+
+  overlaySizeInput.addEventListener("input", () => {
+    const value = parseOverlayScale(overlaySizeInput.value, NaN);
+    if (!Number.isFinite(value)) return;
+    const clamped = clamp(
+      value,
+      OVERLAY_SCALE_RANGE.min,
+      OVERLAY_SCALE_RANGE.max,
+    );
+    overlaySizeSlider.value = String(clamped);
+  });
+}
 
 load();

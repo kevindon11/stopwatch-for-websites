@@ -13,6 +13,37 @@ function normalizeHost(hostname) {
   return (hostname || "").toLowerCase().replace(/^www\./, "");
 }
 
+function normalizePath(pathname) {
+  if (!pathname || pathname === "/") return "";
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed === "/" ? "" : trimmed;
+}
+
+function normalizeTrackedEntry(entry) {
+  const raw = entry?.trim();
+  if (!raw) return "";
+  let url;
+  try {
+    url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+  } catch {
+    return "";
+  }
+  const host = normalizeHost(url.hostname);
+  if (!host) return "";
+  const path = normalizePath(url.pathname);
+  return `${host}${path}`;
+}
+
+function renderVersionInfo() {
+  const manifest = chrome.runtime.getManifest();
+  const version = manifest?.version || "unknown";
+  const versionName = manifest?.version_name || "unknown";
+  const versionEl = document.getElementById("version");
+  const buildEl = document.getElementById("buildTime");
+  if (versionEl) versionEl.textContent = `Version: ${version}`;
+  if (buildEl) buildEl.textContent = `Built: ${versionName}`;
+}
+
 async function load() {
   const settingsRes = await chrome.runtime.sendMessage({
     type: "GET_SETTINGS",
@@ -37,7 +68,7 @@ async function load() {
   list.innerHTML = "";
 
   trackedSites
-    .map(normalizeHost)
+    .map(normalizeTrackedEntry)
     .filter(Boolean)
     .forEach((site) => {
       const row = document.createElement("div");
@@ -54,6 +85,8 @@ async function load() {
   if (!trackedSites.length) {
     list.innerHTML = `<div class="muted">Add sites above, then Save.</div>`;
   }
+
+  renderVersionInfo();
 }
 
 async function save() {

@@ -1,5 +1,5 @@
 let overlayEl = null;
-let overlayHostname = null;
+let overlayKey = null;
 let overlayDismissed = false;
 let dragState = null;
 let overlayObserver = null;
@@ -11,11 +11,10 @@ function fmtMinutesSeconds(ms) {
   return `${totalMinutes}m${String(seconds).padStart(2, "0")}s`;
 }
 
-async function getTodayTimeForHost(hostname) {
+async function getTodayTimeForKey(key) {
   const res = await chrome.runtime.sendMessage({ type: "GET_TODAY_TIMES" });
   if (!res?.ok) return 0;
-  const normalized = (hostname || "").toLowerCase().replace(/^www\./, "");
-  return res.times?.[normalized] || 0;
+  return res.times?.[key] || 0;
 }
 
 function ensureOverlay() {
@@ -42,6 +41,8 @@ function ensureOverlay() {
   overlayEl.style.alignItems = "center";
   overlayEl.style.gap = "8px";
   overlayEl.style.position = "fixed";
+  overlayEl.style.resize = "none";
+  overlayEl.style.overflow = "hidden";
 
   overlayEl.innerHTML = `
     <div id="sst_time" style="font-weight:600; font-variant-numeric: tabular-nums;">0m00s</div>
@@ -64,10 +65,18 @@ function ensureOverlay() {
   overlayEl.addEventListener("mouseenter", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "inline-flex";
+    overlayEl.style.resize = "both";
+    overlayEl.style.overflow = "auto";
+    overlayEl.style.cursor = "nwse-resize";
   });
   overlayEl.addEventListener("mouseleave", () => {
     const button = overlayEl.querySelector("#sst_close");
     if (button) button.style.display = "none";
+    if (!dragState) {
+      overlayEl.style.cursor = "grab";
+    }
+    overlayEl.style.resize = "none";
+    overlayEl.style.overflow = "hidden";
   });
   overlayEl.querySelector("#sst_close")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -138,15 +147,15 @@ function setOverlayVisible(visible) {
 }
 
 async function refreshOverlayTime() {
-  if (!overlayEl || !overlayHostname) return;
-  const ms = await getTodayTimeForHost(overlayHostname);
+  if (!overlayEl || !overlayKey) return;
+  const ms = await getTodayTimeForKey(overlayKey);
   const node = overlayEl.querySelector("#sst_time");
   if (node) node.textContent = fmtMinutesSeconds(ms);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "OVERLAY_SHOW") {
-    overlayHostname = msg.hostname || location.hostname;
+    overlayKey = msg.key || null;
     ensureOverlay();
     if (!overlayDismissed) {
       setOverlayVisible(true);

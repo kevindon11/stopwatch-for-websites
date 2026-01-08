@@ -1,6 +1,7 @@
 {
   "name": "Site Stopwatch (Today)",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "version_name": "2025-09-26 09:45 UTC",
   "manifest_version": 3,
   "description": "Counts up time spent today on selected sites while their tabs are active.",
   "permissions": ["storage", "tabs"],

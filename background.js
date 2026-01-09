@@ -5,6 +5,7 @@ let activeKey = null;
 let lastTickMs = null;
 let activeWindowId = null;
 let popupOpen = false;
+let idleState = "active";
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -178,7 +179,7 @@ async function setActiveFromTab(tab) {
 
   activeTabId = tab.id;
   activeKey = match.key;
-  lastTickMs = Date.now();
+  lastTickMs = canTrackTime() ? Date.now() : null;
   activeWindowId = tab.windowId ?? null;
   await updateBadge(activeKey);
 }
@@ -190,6 +191,10 @@ async function flushActiveTime() {
   lastTickMs = now;
   await addTimeForKey(activeKey, delta);
   await updateBadge(activeKey);
+}
+
+function canTrackTime() {
+  return idleState === "active";
 }
 
 async function updateBadge(key) {
@@ -257,8 +262,31 @@ async function updateOverlay(tabId, forceHide = false) {
   });
 }
 
+chrome.idle.setDetectionInterval(15);
+
+chrome.idle.queryState(15, (state) => {
+  idleState = state;
+  if (state !== "active") {
+    lastTickMs = null;
+  }
+});
+
+chrome.idle.onStateChanged.addListener(async (state) => {
+  if (idleState === state) return;
+  idleState = state;
+  if (state === "active") {
+    if (activeKey) {
+      lastTickMs = Date.now();
+    }
+    return;
+  }
+  await flushActiveTime();
+  lastTickMs = null;
+});
+
 setInterval(async () => {
   if (!activeTabId || !activeKey || !lastTickMs) return;
+  if (!canTrackTime()) return;
 
   const tab = await chrome.tabs.get(activeTabId).catch(() => null);
   if (!tab) {
@@ -302,6 +330,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (!canTrackTime()) {
+    await flushActiveTime();
+    lastTickMs = null;
+    return;
+  }
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     await flushActiveTime();
     await updateBadge(null);

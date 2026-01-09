@@ -75,6 +75,10 @@
         border-bottom: 1px dashed #eee;
         font-variant-numeric: tabular-nums;
       }
+      #dateKey,
+      #list {
+        font-size: 13px;
+      }
       .muted {
         color: #666;
         font-size: 12px;
@@ -116,13 +120,6 @@
       <div id="list"></div>
     </div>
 
-    <div class="row">
-      <div style="flex: 1">
-        <div class="muted">Tracked sites (one per line, like twitter.com)</div>
-        <textarea id="trackedSites"></textarea>
-      </div>
-    </div>
-
     <div class="row column">
       <div class="muted">Overlay size</div>
       <div class="overlay-size">
@@ -146,14 +143,6 @@
       <div class="muted">Overlay appearance</div>
       <div class="overlay-appearance">
         <label class="field">
-          <span>Background color</span>
-          <input id="overlayBackgroundColor" type="color" />
-        </label>
-        <label class="field">
-          <span>Text color</span>
-          <input id="overlayTextColor" type="color" />
-        </label>
-        <label class="field">
           <span>Background opacity</span>
           <input
             id="overlayOpacitySlider"
@@ -171,6 +160,21 @@
             aria-label="Overlay background opacity"
           />
         </label>
+        <label class="field">
+          <span>Background color</span>
+          <input id="overlayBackgroundColor" type="color" />
+        </label>
+        <label class="field">
+          <span>Text color</span>
+          <input id="overlayTextColor" type="color" />
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="flex: 1">
+        <div class="muted">Tracked sites (one per line, like twitter.com)</div>
+        <textarea id="trackedSites"></textarea>
       </div>
     </div>
 

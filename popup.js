@@ -56,6 +56,12 @@ const OVERLAY_OPACITY_RANGE = {
   step: 0.05,
 };
 
+const MENU_TEXT_SCALE_RANGE = {
+  min: 0.85,
+  max: 1.4,
+  step: 0.05,
+};
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -66,6 +72,11 @@ function parseOverlayScale(value, fallback) {
 }
 
 let currentTrackedSites = [];
+
+function applyMenuTextScale(scale) {
+  const safeScale = Number.isFinite(scale) ? scale : 1;
+  document.body.style.fontSize = `${safeScale}em`;
+}
 
 function renderTimes(trackedSites, times, key) {
   const dateKey = document.getElementById("dateKey");
@@ -103,12 +114,31 @@ function renderTimes(trackedSites, times, key) {
   }
 }
 
+function renderCurrentSiteTotal(data) {
+  const currentSite = document.getElementById("currentSiteTotal");
+  if (!currentSite) return;
+  currentSite.innerHTML = "";
+  if (!data?.tracked) {
+    currentSite.innerHTML = `<span class="muted">Not tracked</span>`;
+    return;
+  }
+  const left = document.createElement("div");
+  left.textContent = data.siteKey || "Current site";
+  const right = document.createElement("div");
+  right.textContent = fmt(data.totalMs || 0);
+  currentSite.appendChild(left);
+  currentSite.appendChild(right);
+}
+
 async function load() {
   const settingsRes = await chrome.runtime.sendMessage({
     type: "GET_SETTINGS",
   });
   const timesRes = await chrome.runtime.sendMessage({
     type: "GET_TODAY_TIMES",
+  });
+  const currentSiteRes = await chrome.runtime.sendMessage({
+    type: "GET_ACTIVE_SITE_TOTAL",
   });
 
   const trackedSites = settingsRes?.settings?.trackedSites || [];
@@ -125,6 +155,9 @@ async function load() {
   )
     ? settingsRes.settings.overlayBackgroundOpacity
     : 0.85;
+  const menuTextScale = Number.isFinite(settingsRes?.settings?.menuTextScale)
+    ? settingsRes.settings.menuTextScale
+    : 1;
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
   currentTrackedSites = trackedSites;
@@ -145,6 +178,8 @@ async function load() {
   const overlayTextColorInput = document.getElementById("overlayTextColor");
   const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
   const overlayOpacityInput = document.getElementById("overlayOpacityInput");
+  const menuTextScaleSlider = document.getElementById("menuTextScaleSlider");
+  const menuTextScaleInput = document.getElementById("menuTextScaleInput");
   if (overlayBackgroundColorInput) {
     overlayBackgroundColorInput.value = overlayBackgroundColor;
   }
@@ -160,9 +195,20 @@ async function load() {
     overlayOpacitySlider.value = String(clampedOpacity);
     overlayOpacityInput.value = String(overlayBackgroundOpacity);
   }
+  if (menuTextScaleSlider && menuTextScaleInput) {
+    const clampedScale = clamp(
+      menuTextScale,
+      MENU_TEXT_SCALE_RANGE.min,
+      MENU_TEXT_SCALE_RANGE.max,
+    );
+    menuTextScaleSlider.value = String(clampedScale);
+    menuTextScaleInput.value = String(menuTextScale);
+  }
   const key = timesRes?.key || "";
   const times = timesRes?.times || {};
   renderTimes(trackedSites, times, key);
+  renderCurrentSiteTotal(currentSiteRes?.ok ? currentSiteRes : { tracked: false });
+  applyMenuTextScale(menuTextScale);
 
   renderVersionInfo();
 }
@@ -188,6 +234,8 @@ async function saveSettings() {
   const overlayTextColorInput = document.getElementById("overlayTextColor");
   const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
   const overlayOpacityInput = document.getElementById("overlayOpacityInput");
+  const menuTextScaleSlider = document.getElementById("menuTextScaleSlider");
+  const menuTextScaleInput = document.getElementById("menuTextScaleInput");
   const overlayScale = parseOverlayScale(
     overlaySizeInput?.value,
     parseOverlayScale(overlaySizeSlider?.value, 1),
@@ -197,6 +245,10 @@ async function saveSettings() {
   const overlayBackgroundOpacity = parseOverlayScale(
     overlayOpacityInput?.value,
     parseOverlayScale(overlayOpacitySlider?.value, 0.85),
+  );
+  const menuTextScale = parseOverlayScale(
+    menuTextScaleInput?.value,
+    parseOverlayScale(menuTextScaleSlider?.value, 1),
   );
   const trackedSites = raw
     .split("\n")
@@ -211,6 +263,7 @@ async function saveSettings() {
     overlayBackgroundColor,
     overlayTextColor,
     overlayBackgroundOpacity,
+    menuTextScale,
   });
   setStatus("Saved");
   setTimeout(() => {
@@ -247,6 +300,12 @@ async function refreshTimes() {
   });
   if (!timesRes?.ok) return;
   renderTimes(currentTrackedSites, timesRes.times || {}, timesRes.key || "");
+  const currentSiteRes = await chrome.runtime.sendMessage({
+    type: "GET_ACTIVE_SITE_TOTAL",
+  });
+  if (currentSiteRes?.ok) {
+    renderCurrentSiteTotal(currentSiteRes);
+  }
 }
 
 document.getElementById("reset").addEventListener("click", resetToday);
@@ -260,6 +319,8 @@ const overlayBackgroundColorInput =
 const overlayTextColorInput = document.getElementById("overlayTextColor");
 const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
 const overlayOpacityInput = document.getElementById("overlayOpacityInput");
+const menuTextScaleSlider = document.getElementById("menuTextScaleSlider");
+const menuTextScaleInput = document.getElementById("menuTextScaleInput");
 if (overlaySizeSlider && overlaySizeInput) {
   overlaySizeSlider.min = String(OVERLAY_SCALE_RANGE.min);
   overlaySizeSlider.max = String(OVERLAY_SCALE_RANGE.max);
@@ -322,6 +383,32 @@ if (overlayOpacitySlider && overlayOpacityInput) {
 
 if (overlayEnabled) {
   overlayEnabled.addEventListener("change", () => {
+    scheduleSave();
+  });
+}
+
+if (menuTextScaleSlider && menuTextScaleInput) {
+  menuTextScaleSlider.min = String(MENU_TEXT_SCALE_RANGE.min);
+  menuTextScaleSlider.max = String(MENU_TEXT_SCALE_RANGE.max);
+  menuTextScaleSlider.step = String(MENU_TEXT_SCALE_RANGE.step);
+
+  menuTextScaleSlider.addEventListener("input", () => {
+    const value = parseOverlayScale(menuTextScaleSlider.value, 1);
+    menuTextScaleInput.value = String(value);
+    applyMenuTextScale(value);
+    scheduleSave();
+  });
+
+  menuTextScaleInput.addEventListener("input", () => {
+    const value = parseOverlayScale(menuTextScaleInput.value, NaN);
+    if (!Number.isFinite(value)) return;
+    const clamped = clamp(
+      value,
+      MENU_TEXT_SCALE_RANGE.min,
+      MENU_TEXT_SCALE_RANGE.max,
+    );
+    menuTextScaleSlider.value = String(clamped);
+    applyMenuTextScale(clamped);
     scheduleSave();
   });
 }

@@ -3,6 +3,7 @@ const DEFAULT_SITES = ["chatgpt.com", "chatgpt.com/codex", "github.com", "x.com"
 let activeTabId = null;
 let activeKey = null;
 let lastTickMs = null;
+let activeWindowId = null;
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -39,6 +40,7 @@ async function getSettings() {
     overlayBackgroundColor,
     overlayTextColor,
     overlayBackgroundOpacity,
+    menuTextScale,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
     overlayEnabled: true,
@@ -46,6 +48,7 @@ async function getSettings() {
     overlayBackgroundColor: DEFAULT_OVERLAY_THEME.backgroundColor,
     overlayTextColor: DEFAULT_OVERLAY_THEME.textColor,
     overlayBackgroundOpacity: DEFAULT_OVERLAY_THEME.backgroundOpacity,
+    menuTextScale: 1,
   });
   return {
     trackedSites,
@@ -64,6 +67,9 @@ async function getSettings() {
       DEFAULT_OVERLAY_THEME.backgroundOpacity,
     ),
     overlayClickThrough: true,
+    menuTextScale: Number.isFinite(Number.parseFloat(menuTextScale))
+      ? Number.parseFloat(menuTextScale)
+      : 1,
   };
 }
 
@@ -141,6 +147,7 @@ async function setActiveFromTab(tab) {
     activeTabId = null;
     activeKey = null;
     lastTickMs = null;
+    activeWindowId = null;
     await updateBadge(null);
     return;
   }
@@ -163,6 +170,7 @@ async function setActiveFromTab(tab) {
     activeTabId = null;
     activeKey = null;
     lastTickMs = null;
+    activeWindowId = null;
     await updateBadge(null);
     return;
   }
@@ -170,6 +178,7 @@ async function setActiveFromTab(tab) {
   activeTabId = tab.id;
   activeKey = match.key;
   lastTickMs = Date.now();
+  activeWindowId = tab.windowId ?? null;
   await updateBadge(activeKey);
 }
 
@@ -255,11 +264,18 @@ setInterval(async () => {
     activeTabId = null;
     activeKey = null;
     lastTickMs = null;
+    activeWindowId = null;
     await updateBadge(null);
     return;
   }
 
   if (!tab.active) return;
+  if (Number.isInteger(activeWindowId)) {
+    const windowInfo = await chrome.windows
+      .get(activeWindowId)
+      .catch(() => null);
+    if (!windowInfo?.focused) return;
+  }
 
   await flushActiveTime();
   sendMessageToTab(activeTabId, { type: "OVERLAY_TICK" });
@@ -287,6 +303,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     await flushActiveTime();
+    lastTickMs = null;
+    activeWindowId = null;
     await updateBadge(null);
     return;
   }
@@ -335,6 +353,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         msg.overlayBackgroundOpacity,
         DEFAULT_OVERLAY_THEME.backgroundOpacity,
       );
+      const parsedMenuTextScale = Number.parseFloat(msg.menuTextScale);
+      const menuTextScale = Number.isFinite(parsedMenuTextScale)
+        ? parsedMenuTextScale
+        : 1;
       await chrome.storage.sync.set({
         trackedSites,
         overlayEnabled,
@@ -342,6 +364,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         overlayBackgroundColor,
         overlayTextColor,
         overlayBackgroundOpacity,
+        menuTextScale,
       });
 
       const [tab] = await chrome.tabs
@@ -365,11 +388,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    if (msg?.type === "REQUEST_OVERLAY_STATE") {
-      const tabId = sender?.tab?.id;
-      if (tabId) await updateOverlay(tabId);
-      sendResponse({ ok: true });
+  if (msg?.type === "REQUEST_OVERLAY_STATE") {
+    const tabId = sender?.tab?.id;
+    if (tabId) await updateOverlay(tabId);
+    sendResponse({ ok: true });
+  }
+
+  if (msg?.type === "GET_ACTIVE_SITE_TOTAL") {
+    const [tab] = await chrome.tabs
+      .query({ active: true, currentWindow: true })
+      .catch(() => []);
+    if (!tab?.url) {
+      sendResponse({ ok: true, tracked: false });
+      return;
     }
+    let url;
+    try {
+      url = new URL(tab.url);
+    } catch {
+      sendResponse({ ok: true, tracked: false });
+      return;
+    }
+    const { trackedSites } = await getSettings();
+    const match = getMatchForUrl(url, trackedSites);
+    if (!match) {
+      sendResponse({ ok: true, tracked: false });
+      return;
+    }
+    const key = todayKey();
+    const storeKey = `time_${key}`;
+    const data = await chrome.storage.local.get({ [storeKey]: {} });
+    sendResponse({
+      ok: true,
+      tracked: true,
+      siteKey: match.key,
+      totalMs: data[storeKey]?.[match.key] || 0,
+    });
+  }
   })();
 
   return true;

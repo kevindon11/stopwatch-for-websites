@@ -131,6 +131,7 @@ function renderCurrentSiteTotal(data) {
 }
 
 async function load() {
+  chrome.runtime.sendMessage({ type: "POPUP_OPEN" }).catch(() => {});
   const settingsRes = await chrome.runtime.sendMessage({
     type: "GET_SETTINGS",
   });
@@ -423,4 +424,8 @@ if (trackedSitesInput) {
 load().then(() => {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(refreshTimes, 1000);
+});
+
+window.addEventListener("unload", () => {
+  chrome.runtime.sendMessage({ type: "POPUP_CLOSED" }).catch(() => {});
 });

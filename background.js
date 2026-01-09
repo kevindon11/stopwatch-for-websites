@@ -4,6 +4,7 @@ let activeTabId = null;
 let activeKey = null;
 let lastTickMs = null;
 let activeWindowId = null;
+let popupOpen = false;
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -270,7 +271,7 @@ setInterval(async () => {
   }
 
   if (!tab.active) return;
-  if (Number.isInteger(activeWindowId)) {
+  if (!popupOpen && Number.isInteger(activeWindowId)) {
     const windowInfo = await chrome.windows
       .get(activeWindowId)
       .catch(() => null);
@@ -382,6 +383,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       lastTickMs = Date.now();
       await updateBadge(activeKey);
 
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "POPUP_OPEN") {
+      popupOpen = true;
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "POPUP_CLOSED") {
+      popupOpen = false;
       sendResponse({ ok: true });
       return;
     }

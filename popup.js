@@ -56,6 +56,12 @@ const OVERLAY_OPACITY_RANGE = {
   step: 0.05,
 };
 
+const MENU_TEXT_SCALE_RANGE = {
+  min: 0.85,
+  max: 1.4,
+  step: 0.05,
+};
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -65,12 +71,75 @@ function parseOverlayScale(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+let currentTrackedSites = [];
+
+function applyMenuTextScale(scale) {
+  const safeScale = Number.isFinite(scale) ? scale : 1;
+  document.body.style.fontSize = `${safeScale}em`;
+}
+
+function renderTimes(trackedSites, times, key) {
+  const dateKey = document.getElementById("dateKey");
+  if (dateKey) {
+    dateKey.textContent = key ? `Totals for ${key}` : "Totals for today";
+  }
+
+  const list = document.getElementById("list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  trackedSites
+    .map(normalizeTrackedEntry)
+    .filter(Boolean)
+    .map((site) => ({
+      site,
+      time: times[site] || 0,
+    }))
+    .sort((a, b) => b.time - a.time)
+    .forEach((site) => {
+      const { site: siteKey, time } = site;
+      const row = document.createElement("div");
+      row.className = "site";
+      const left = document.createElement("div");
+      left.textContent = siteKey;
+      const right = document.createElement("div");
+      right.textContent = fmt(time);
+      row.appendChild(left);
+      row.appendChild(right);
+      list.appendChild(row);
+    });
+
+  if (!trackedSites.length) {
+    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
+  }
+}
+
+function renderCurrentSiteTotal(data) {
+  const currentSite = document.getElementById("currentSiteTotal");
+  if (!currentSite) return;
+  currentSite.innerHTML = "";
+  if (!data?.tracked) {
+    currentSite.innerHTML = `<span class="muted">Not tracked</span>`;
+    return;
+  }
+  const left = document.createElement("div");
+  left.textContent = data.siteKey || "Current site";
+  const right = document.createElement("div");
+  right.textContent = fmt(data.totalMs || 0);
+  currentSite.appendChild(left);
+  currentSite.appendChild(right);
+}
+
 async function load() {
+  chrome.runtime.sendMessage({ type: "POPUP_OPEN" }).catch(() => {});
   const settingsRes = await chrome.runtime.sendMessage({
     type: "GET_SETTINGS",
   });
   const timesRes = await chrome.runtime.sendMessage({
     type: "GET_TODAY_TIMES",
+  });
+  const currentSiteRes = await chrome.runtime.sendMessage({
+    type: "GET_ACTIVE_SITE_TOTAL",
   });
 
   const trackedSites = settingsRes?.settings?.trackedSites || [];
@@ -87,10 +156,12 @@ async function load() {
   )
     ? settingsRes.settings.overlayBackgroundOpacity
     : 0.85;
-  const overlayClickThrough = !!settingsRes?.settings?.overlayClickThrough;
-
+  const menuTextScale = Number.isFinite(settingsRes?.settings?.menuTextScale)
+    ? settingsRes.settings.menuTextScale
+    : 1;
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
+  currentTrackedSites = trackedSites;
   const overlaySizeSlider = document.getElementById("overlaySizeSlider");
   const overlaySizeInput = document.getElementById("overlaySizeInput");
   if (overlaySizeSlider && overlaySizeInput) {
@@ -108,9 +179,8 @@ async function load() {
   const overlayTextColorInput = document.getElementById("overlayTextColor");
   const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
   const overlayOpacityInput = document.getElementById("overlayOpacityInput");
-  const overlayClickThroughInput =
-    document.getElementById("overlayClickThrough");
-
+  const menuTextScaleSlider = document.getElementById("menuTextScaleSlider");
+  const menuTextScaleInput = document.getElementById("menuTextScaleInput");
   if (overlayBackgroundColorInput) {
     overlayBackgroundColorInput.value = overlayBackgroundColor;
   }
@@ -126,42 +196,26 @@ async function load() {
     overlayOpacitySlider.value = String(clampedOpacity);
     overlayOpacityInput.value = String(overlayBackgroundOpacity);
   }
-  if (overlayClickThroughInput) {
-    overlayClickThroughInput.checked = overlayClickThrough;
+  if (menuTextScaleSlider && menuTextScaleInput) {
+    const clampedScale = clamp(
+      menuTextScale,
+      MENU_TEXT_SCALE_RANGE.min,
+      MENU_TEXT_SCALE_RANGE.max,
+    );
+    menuTextScaleSlider.value = String(clampedScale);
+    menuTextScaleInput.value = String(menuTextScale);
   }
-
   const key = timesRes?.key || "";
-  document.getElementById("dateKey").textContent = key
-    ? `Totals for ${key}`
-    : "Totals for today";
-
   const times = timesRes?.times || {};
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-
-  trackedSites
-    .map(normalizeTrackedEntry)
-    .filter(Boolean)
-    .forEach((site) => {
-      const row = document.createElement("div");
-      row.className = "site";
-      const left = document.createElement("div");
-      left.textContent = site;
-      const right = document.createElement("div");
-      right.textContent = fmt(times[site] || 0);
-      row.appendChild(left);
-      row.appendChild(right);
-      list.appendChild(row);
-    });
-
-  if (!trackedSites.length) {
-    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
-  }
+  renderTimes(trackedSites, times, key);
+  renderCurrentSiteTotal(currentSiteRes?.ok ? currentSiteRes : { tracked: false });
+  applyMenuTextScale(menuTextScale);
 
   renderVersionInfo();
 }
 
 let saveTimer = null;
+let refreshTimer = null;
 
 function setStatus(message) {
   const status = document.getElementById("status");
@@ -181,8 +235,8 @@ async function saveSettings() {
   const overlayTextColorInput = document.getElementById("overlayTextColor");
   const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
   const overlayOpacityInput = document.getElementById("overlayOpacityInput");
-  const overlayClickThroughInput =
-    document.getElementById("overlayClickThrough");
+  const menuTextScaleSlider = document.getElementById("menuTextScaleSlider");
+  const menuTextScaleInput = document.getElementById("menuTextScaleInput");
   const overlayScale = parseOverlayScale(
     overlaySizeInput?.value,
     parseOverlayScale(overlaySizeSlider?.value, 1),
@@ -193,8 +247,10 @@ async function saveSettings() {
     overlayOpacityInput?.value,
     parseOverlayScale(overlayOpacitySlider?.value, 0.85),
   );
-  const overlayClickThrough = !!overlayClickThroughInput?.checked;
-
+  const menuTextScale = parseOverlayScale(
+    menuTextScaleInput?.value,
+    parseOverlayScale(menuTextScaleSlider?.value, 1),
+  );
   const trackedSites = raw
     .split("\n")
     .map((site) => site.trim())
@@ -208,7 +264,7 @@ async function saveSettings() {
     overlayBackgroundColor,
     overlayTextColor,
     overlayBackgroundOpacity,
-    overlayClickThrough,
+    menuTextScale,
   });
   setStatus("Saved");
   setTimeout(() => {
@@ -239,6 +295,20 @@ async function resetToday() {
   await load();
 }
 
+async function refreshTimes() {
+  const timesRes = await chrome.runtime.sendMessage({
+    type: "GET_TODAY_TIMES",
+  });
+  if (!timesRes?.ok) return;
+  renderTimes(currentTrackedSites, timesRes.times || {}, timesRes.key || "");
+  const currentSiteRes = await chrome.runtime.sendMessage({
+    type: "GET_ACTIVE_SITE_TOTAL",
+  });
+  if (currentSiteRes?.ok) {
+    renderCurrentSiteTotal(currentSiteRes);
+  }
+}
+
 document.getElementById("reset").addEventListener("click", resetToday);
 
 const overlaySizeSlider = document.getElementById("overlaySizeSlider");
@@ -250,8 +320,8 @@ const overlayBackgroundColorInput =
 const overlayTextColorInput = document.getElementById("overlayTextColor");
 const overlayOpacitySlider = document.getElementById("overlayOpacitySlider");
 const overlayOpacityInput = document.getElementById("overlayOpacityInput");
-const overlayClickThroughInput =
-  document.getElementById("overlayClickThrough");
+const menuTextScaleSlider = document.getElementById("menuTextScaleSlider");
+const menuTextScaleInput = document.getElementById("menuTextScaleInput");
 if (overlaySizeSlider && overlaySizeInput) {
   overlaySizeSlider.min = String(OVERLAY_SCALE_RANGE.min);
   overlaySizeSlider.max = String(OVERLAY_SCALE_RANGE.max);
@@ -318,11 +388,32 @@ if (overlayEnabled) {
   });
 }
 
-if (overlayClickThroughInput) {
-  overlayClickThroughInput.addEventListener("change", () => {
+if (menuTextScaleSlider && menuTextScaleInput) {
+  menuTextScaleSlider.min = String(MENU_TEXT_SCALE_RANGE.min);
+  menuTextScaleSlider.max = String(MENU_TEXT_SCALE_RANGE.max);
+  menuTextScaleSlider.step = String(MENU_TEXT_SCALE_RANGE.step);
+
+  menuTextScaleSlider.addEventListener("input", () => {
+    const value = parseOverlayScale(menuTextScaleSlider.value, 1);
+    menuTextScaleInput.value = String(value);
+    applyMenuTextScale(value);
+    scheduleSave();
+  });
+
+  menuTextScaleInput.addEventListener("input", () => {
+    const value = parseOverlayScale(menuTextScaleInput.value, NaN);
+    if (!Number.isFinite(value)) return;
+    const clamped = clamp(
+      value,
+      MENU_TEXT_SCALE_RANGE.min,
+      MENU_TEXT_SCALE_RANGE.max,
+    );
+    menuTextScaleSlider.value = String(clamped);
+    applyMenuTextScale(clamped);
     scheduleSave();
   });
 }
+
 
 if (trackedSitesInput) {
   trackedSitesInput.addEventListener("input", () => {
@@ -330,4 +421,11 @@ if (trackedSitesInput) {
   });
 }
 
-load();
+load().then(() => {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(refreshTimes, 1000);
+});
+
+window.addEventListener("unload", () => {
+  chrome.runtime.sendMessage({ type: "POPUP_CLOSED" }).catch(() => {});
+});

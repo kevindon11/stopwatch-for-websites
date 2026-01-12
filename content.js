@@ -4,6 +4,7 @@ let overlayDismissed = false;
 let dragState = null;
 let overlayObserver = null;
 let overlayScale = 1;
+let overlayLimitMinutes = null;
 let blockEl = null;
 let blockState = {
   key: null,
@@ -129,6 +130,12 @@ function fmtMinutesSeconds(ms) {
   const totalSeconds = Math.floor(ms / 1000);
   const seconds = totalSeconds % 60;
   return `${totalMinutes}m${String(seconds).padStart(2, "0")}s`;
+}
+
+function fmtLimitMinutes(limit) {
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+  const isWhole = Number.isInteger(limit);
+  return `${isWhole ? limit : limit.toFixed(1)}m`;
 }
 
 function fmtMinutes(ms) {
@@ -358,13 +365,20 @@ async function refreshOverlayTime() {
   if (!overlayEl || !overlayKey) return;
   const ms = await getTodayTimeForKey(overlayKey);
   const node = overlayEl.querySelector("#sst_time");
-  if (node) node.textContent = fmtMinutesSeconds(ms);
+  if (!node) return;
+  const limitLabel = fmtLimitMinutes(overlayLimitMinutes);
+  node.textContent = limitLabel
+    ? `${fmtMinutesSeconds(ms)}/${limitLabel}`
+    : fmtMinutesSeconds(ms);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "OVERLAY_SHOW") {
     overlayKey = msg.key || null;
     overlayScale = Number.isFinite(msg.scale) ? msg.scale : 1;
+    overlayLimitMinutes = Number.isFinite(msg.limitMinutes)
+      ? msg.limitMinutes
+      : null;
     overlayTheme = {
       backgroundColor:
         typeof msg.backgroundColor === "string"

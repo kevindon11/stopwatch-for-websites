@@ -272,6 +272,7 @@ async function updateOverlay(tabId, forceHide = false) {
     overlayBackgroundColor,
     overlayTextColor,
     overlayBackgroundOpacity,
+    timeLimits,
   } = await getSettings();
 
   if (!overlayEnabled || forceHide) {
@@ -308,6 +309,7 @@ async function updateOverlay(tabId, forceHide = false) {
     textColor: overlayTextColor,
     backgroundOpacity: overlayBackgroundOpacity,
     clickThrough: true,
+    limitMinutes: timeLimits?.[match.key],
   });
   await updateBlockState(tabId, match.key);
 }

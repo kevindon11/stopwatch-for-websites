@@ -4,6 +4,12 @@ let overlayDismissed = false;
 let dragState = null;
 let overlayObserver = null;
 let overlayScale = 1;
+let blockEl = null;
+let blockState = {
+  key: null,
+  limitMinutes: null,
+  totalMs: 0,
+};
 let overlayTheme = {
   backgroundColor: "#7a7a7a",
   textColor: "#f7f7f7",
@@ -123,6 +129,11 @@ function fmtMinutesSeconds(ms) {
   const totalSeconds = Math.floor(ms / 1000);
   const seconds = totalSeconds % 60;
   return `${totalMinutes}m${String(seconds).padStart(2, "0")}s`;
+}
+
+function fmtMinutes(ms) {
+  const totalMinutes = Math.floor(ms / 60000);
+  return `${totalMinutes}m`;
 }
 
 async function getTodayTimeForKey(key) {
@@ -293,6 +304,56 @@ function setOverlayVisible(visible) {
   overlayEl.style.display = visible ? "flex" : "none";
 }
 
+function ensureBlockOverlay() {
+  if (blockEl) return blockEl;
+  blockEl = document.createElement("div");
+  blockEl.style.position = "fixed";
+  blockEl.style.top = "0";
+  blockEl.style.left = "0";
+  blockEl.style.width = "100%";
+  blockEl.style.height = "100%";
+  blockEl.style.zIndex = "2147483647";
+  blockEl.style.background = "rgba(0, 0, 0, 0.92)";
+  blockEl.style.color = "#f7f7f7";
+  blockEl.style.display = "flex";
+  blockEl.style.alignItems = "center";
+  blockEl.style.justifyContent = "center";
+  blockEl.style.textAlign = "center";
+  blockEl.style.fontFamily =
+    "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+  blockEl.style.fontSize = "16px";
+  blockEl.style.padding = "24px";
+  blockEl.style.boxSizing = "border-box";
+  blockEl.style.pointerEvents = "auto";
+  blockEl.innerHTML = `
+    <div style="max-width: 360px;">
+      <div style="font-size: 20px; font-weight: 600; margin-bottom: 12px;">
+        Time limit reached
+      </div>
+      <div id="sst_block_details" style="line-height: 1.5;"></div>
+    </div>
+  `;
+  (document.body || document.documentElement).appendChild(blockEl);
+  return blockEl;
+}
+
+function updateBlockDetails() {
+  if (!blockEl) return;
+  const details = blockEl.querySelector("#sst_block_details");
+  if (!details) return;
+  const limitText = blockState.limitMinutes
+    ? `${blockState.limitMinutes}m`
+    : "No limit";
+  const totalText = fmtMinutes(blockState.totalMs || 0);
+  details.textContent = `Limit: ${limitText} · Today: ${totalText}`;
+}
+
+function setBlockVisible(visible) {
+  const overlay = ensureBlockOverlay();
+  overlay.style.display = visible ? "flex" : "none";
+  if (visible) updateBlockDetails();
+}
+
 async function refreshOverlayTime() {
   if (!overlayEl || !overlayKey) return;
   const ms = await getTodayTimeForKey(overlayKey);
@@ -338,6 +399,20 @@ chrome.runtime.onMessage.addListener((msg) => {
       refreshOverlayTime();
     }
   }
+
+  if (msg?.type === "BLOCK_SHOW") {
+    blockState = {
+      key: msg.key || null,
+      limitMinutes: Number.isFinite(msg.limitMinutes) ? msg.limitMinutes : null,
+      totalMs: Number.isFinite(msg.totalMs) ? msg.totalMs : 0,
+    };
+    setBlockVisible(true);
+  }
+
+  if (msg?.type === "BLOCK_HIDE") {
+    if (blockEl) blockEl.style.display = "none";
+  }
 });
 
 chrome.runtime.sendMessage({ type: "REQUEST_OVERLAY_STATE" }).catch(() => {});
+chrome.runtime.sendMessage({ type: "REQUEST_BLOCK_STATE" }).catch(() => {});

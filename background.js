@@ -34,6 +34,18 @@ function normalizeOpacity(value, fallback) {
   return Math.min(1, Math.max(0, parsed));
 }
 
+function normalizeTimeLimits(raw) {
+  const limits = {};
+  if (!raw || typeof raw !== "object") return limits;
+  Object.entries(raw).forEach(([key, value]) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      limits[key] = parsed;
+    }
+  });
+  return limits;
+}
+
 async function getSettings() {
   const {
     trackedSites,
@@ -43,6 +55,7 @@ async function getSettings() {
     overlayTextColor,
     overlayBackgroundOpacity,
     menuTextScale,
+    timeLimits,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
     overlayEnabled: true,
@@ -51,6 +64,7 @@ async function getSettings() {
     overlayTextColor: DEFAULT_OVERLAY_THEME.textColor,
     overlayBackgroundOpacity: DEFAULT_OVERLAY_THEME.backgroundOpacity,
     menuTextScale: 1,
+    timeLimits: {},
   });
   return {
     trackedSites,
@@ -72,6 +86,7 @@ async function getSettings() {
     menuTextScale: Number.isFinite(Number.parseFloat(menuTextScale))
       ? Number.parseFloat(menuTextScale)
       : 1,
+    timeLimits: normalizeTimeLimits(timeLimits),
   };
 }
 
@@ -144,6 +159,13 @@ async function addTimeForKey(key, deltaMs) {
   await chrome.storage.local.set({ [storeKey]: perHost });
 }
 
+async function getTodayTotalForKey(key) {
+  const today = todayKey();
+  const storeKey = `time_${today}`;
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  return data[storeKey]?.[key] || 0;
+}
+
 async function setActiveFromTab(tab) {
   if (!tab || !tab.id || !tab.url) {
     activeTabId = null;
@@ -151,6 +173,7 @@ async function setActiveFromTab(tab) {
     lastTickMs = null;
     activeWindowId = null;
     await updateBadge(null);
+    if (tab?.id) sendMessageToTab(tab.id, { type: "BLOCK_HIDE" });
     return;
   }
 
@@ -174,6 +197,7 @@ async function setActiveFromTab(tab) {
     lastTickMs = null;
     activeWindowId = null;
     await updateBadge(null);
+    sendMessageToTab(tab.id, { type: "BLOCK_HIDE" });
     return;
   }
 
@@ -182,6 +206,7 @@ async function setActiveFromTab(tab) {
   lastTickMs = canTrackTime() ? Date.now() : null;
   activeWindowId = tab.windowId ?? null;
   await updateBadge(activeKey);
+  await updateBlockState(tab.id, activeKey);
 }
 
 async function flushActiveTime() {
@@ -202,10 +227,7 @@ async function updateBadge(key) {
     chrome.action.setBadgeText({ text: "" });
     return;
   }
-  const today = todayKey();
-  const storeKey = `time_${today}`;
-  const data = await chrome.storage.local.get({ [storeKey]: {} });
-  const totalMs = data[storeKey]?.[key] || 0;
+  const totalMs = await getTodayTotalForKey(key);
   const minutes = Math.floor(totalMs / 60000);
   const text = minutes ? `${minutes}m` : "0m";
   chrome.action.setBadgeBackgroundColor({ color: "#00539c" });
@@ -215,6 +237,31 @@ async function updateBadge(key) {
 function sendMessageToTab(tabId, message) {
   if (!Number.isInteger(tabId)) return;
   chrome.tabs.sendMessage(tabId, message).catch(() => {});
+}
+
+async function updateBlockState(tabId, key) {
+  if (!Number.isInteger(tabId)) return;
+  if (!key) {
+    sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
+    return;
+  }
+  const { timeLimits } = await getSettings();
+  const limitMinutes = Number.parseFloat(timeLimits?.[key]);
+  if (!Number.isFinite(limitMinutes) || limitMinutes <= 0) {
+    sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
+    return;
+  }
+  const totalMs = await getTodayTotalForKey(key);
+  if (totalMs >= limitMinutes * 60000) {
+    sendMessageToTab(tabId, {
+      type: "BLOCK_SHOW",
+      key,
+      limitMinutes,
+      totalMs,
+    });
+  } else {
+    sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
+  }
 }
 
 async function updateOverlay(tabId, forceHide = false) {
@@ -229,6 +276,7 @@ async function updateOverlay(tabId, forceHide = false) {
 
   if (!overlayEnabled || forceHide) {
     sendMessageToTab(tabId, { type: "OVERLAY_HIDE" });
+    await updateBlockState(tabId, activeKey);
     return;
   }
 
@@ -248,6 +296,7 @@ async function updateOverlay(tabId, forceHide = false) {
 
   if (!match) {
     sendMessageToTab(tabId, { type: "OVERLAY_HIDE" });
+    sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
     return;
   }
 
@@ -260,6 +309,7 @@ async function updateOverlay(tabId, forceHide = false) {
     backgroundOpacity: overlayBackgroundOpacity,
     clickThrough: true,
   });
+  await updateBlockState(tabId, match.key);
 }
 
 chrome.idle.setDetectionInterval(15);
@@ -308,6 +358,7 @@ setInterval(async () => {
 
   await flushActiveTime();
   sendMessageToTab(activeTabId, { type: "OVERLAY_TICK" });
+  await updateBlockState(activeTabId, activeKey);
 }, 1000);
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
@@ -389,6 +440,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const menuTextScale = Number.isFinite(parsedMenuTextScale)
         ? parsedMenuTextScale
         : 1;
+      const timeLimits = normalizeTimeLimits(msg.timeLimits);
       await chrome.storage.sync.set({
         trackedSites,
         overlayEnabled,
@@ -397,12 +449,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         overlayTextColor,
         overlayBackgroundOpacity,
         menuTextScale,
+        timeLimits,
       });
 
       const [tab] = await chrome.tabs
         .query({ active: true, currentWindow: true })
         .catch(() => []);
       if (tab?.id) await updateOverlay(tab.id);
+      if (tab?.id) await updateBlockState(tab.id, activeKey);
 
       sendResponse({ ok: true });
       return;
@@ -415,6 +469,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       lastTickMs = Date.now();
       await updateBadge(activeKey);
+      if (activeTabId) await updateBlockState(activeTabId, activeKey);
 
       sendResponse({ ok: true });
       return;
@@ -432,43 +487,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-  if (msg?.type === "REQUEST_OVERLAY_STATE") {
-    const tabId = sender?.tab?.id;
-    if (tabId) await updateOverlay(tabId);
-    sendResponse({ ok: true });
-  }
+    if (msg?.type === "REQUEST_OVERLAY_STATE") {
+      const tabId = sender?.tab?.id;
+      if (tabId) await updateOverlay(tabId);
+      sendResponse({ ok: true });
+    }
 
-  if (msg?.type === "GET_ACTIVE_SITE_TOTAL") {
-    const [tab] = await chrome.tabs
-      .query({ active: true, currentWindow: true })
-      .catch(() => []);
-    if (!tab?.url) {
-      sendResponse({ ok: true, tracked: false });
-      return;
+    if (msg?.type === "REQUEST_BLOCK_STATE") {
+      const tabId = sender?.tab?.id;
+      if (tabId) await updateBlockState(tabId, activeKey);
+      sendResponse({ ok: true });
     }
-    let url;
-    try {
-      url = new URL(tab.url);
-    } catch {
-      sendResponse({ ok: true, tracked: false });
-      return;
+
+    if (msg?.type === "GET_ACTIVE_SITE_TOTAL") {
+      const [tab] = await chrome.tabs
+        .query({ active: true, currentWindow: true })
+        .catch(() => []);
+      if (!tab?.url) {
+        sendResponse({ ok: true, tracked: false });
+        return;
+      }
+      let url;
+      try {
+        url = new URL(tab.url);
+      } catch {
+        sendResponse({ ok: true, tracked: false });
+        return;
+      }
+      const { trackedSites } = await getSettings();
+      const match = getMatchForUrl(url, trackedSites);
+      if (!match) {
+        sendResponse({ ok: true, tracked: false });
+        return;
+      }
+      const key = todayKey();
+      const storeKey = `time_${key}`;
+      const data = await chrome.storage.local.get({ [storeKey]: {} });
+      sendResponse({
+        ok: true,
+        tracked: true,
+        siteKey: match.key,
+        totalMs: data[storeKey]?.[match.key] || 0,
+      });
     }
-    const { trackedSites } = await getSettings();
-    const match = getMatchForUrl(url, trackedSites);
-    if (!match) {
-      sendResponse({ ok: true, tracked: false });
-      return;
-    }
-    const key = todayKey();
-    const storeKey = `time_${key}`;
-    const data = await chrome.storage.local.get({ [storeKey]: {} });
-    sendResponse({
-      ok: true,
-      tracked: true,
-      siteKey: match.key,
-      totalMs: data[storeKey]?.[match.key] || 0,
-    });
-  }
   })();
 
   return true;

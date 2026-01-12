@@ -79,7 +79,7 @@
       }
       .site-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto 90px;
+        grid-template-columns: minmax(0, 1fr) auto;
         gap: 8px;
         align-items: center;
         padding: 6px 0;
@@ -89,9 +89,6 @@
       .site-header {
         font-weight: 600;
         color: #555;
-      }
-      .limit-input {
-        width: 80px;
       }
       #dateKey,
       #list {
@@ -207,13 +204,6 @@
           step="0.05"
           aria-label="Menu text size value"
         />
-      </div>
-    </div>
-
-    <div class="row">
-      <div style="flex: 1">
-        <div class="muted">Tracked sites (one per line, like twitter.com)</div>
-        <textarea id="trackedSites"></textarea>
       </div>
     </div>
 

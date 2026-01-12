@@ -73,20 +73,14 @@ function parseOverlayScale(value, fallback) {
 
 let currentTrackedSites = [];
 let currentTimeLimits = {};
+let currentTabLimits = {};
 
 function applyMenuTextScale(scale) {
   const safeScale = Number.isFinite(scale) ? scale : 1;
   document.body.style.fontSize = `${safeScale}em`;
 }
 
-function parseTimeLimit(value) {
-  if (value === "" || value == null) return null;
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
-function renderTimes(trackedSites, times, key, timeLimits) {
+function renderTimes(trackedSites, times, key) {
   const dateKey = document.getElementById("dateKey");
   if (dateKey) {
     dateKey.textContent = key ? `Totals for ${key}` : "Totals for today";
@@ -106,7 +100,6 @@ function renderTimes(trackedSites, times, key, timeLimits) {
   header.innerHTML = `
     <div>Site</div>
     <div>Elapsed</div>
-    <div>Limit (min)</div>
   `;
   list.appendChild(header);
 
@@ -127,30 +120,8 @@ function renderTimes(trackedSites, times, key, timeLimits) {
       left.textContent = siteKey;
       const right = document.createElement("div");
       right.textContent = fmt(time);
-      const limitInput = document.createElement("input");
-      limitInput.type = "number";
-      limitInput.min = "1";
-      limitInput.step = "1";
-      limitInput.inputMode = "numeric";
-      limitInput.placeholder = "—";
-      limitInput.className = "limit-input";
-      limitInput.dataset.limitInput = "true";
-      const limitValue = parseTimeLimit(timeLimits?.[siteKey]);
-      if (limitValue) {
-        limitInput.value = String(limitValue);
-      }
-      limitInput.addEventListener("input", () => {
-        const nextValue = parseTimeLimit(limitInput.value);
-        if (nextValue == null) {
-          delete currentTimeLimits[siteKey];
-        } else {
-          currentTimeLimits[siteKey] = nextValue;
-        }
-        scheduleSave();
-      });
       row.appendChild(left);
       row.appendChild(right);
-      row.appendChild(limitInput);
       list.appendChild(row);
     });
 }
@@ -201,8 +172,8 @@ async function load() {
     ? settingsRes.settings.menuTextScale
     : 1;
   currentTimeLimits = settingsRes?.settings?.timeLimits || {};
+  currentTabLimits = settingsRes?.settings?.tabLimits || {};
   document.getElementById("overlayEnabled").checked = overlayEnabled;
-  document.getElementById("trackedSites").value = trackedSites.join("\n");
   currentTrackedSites = trackedSites;
   const overlaySizeSlider = document.getElementById("overlaySizeSlider");
   const overlaySizeInput = document.getElementById("overlaySizeInput");
@@ -249,7 +220,7 @@ async function load() {
   }
   const key = timesRes?.key || "";
   const times = timesRes?.times || {};
-  renderTimes(trackedSites, times, key, currentTimeLimits);
+  renderTimes(trackedSites, times, key);
   renderCurrentSiteTotal(currentSiteRes?.ok ? currentSiteRes : { tracked: false });
   applyMenuTextScale(menuTextScale);
 
@@ -268,7 +239,6 @@ async function saveSettings() {
   setStatus("Saving...");
 
   const overlayEnabled = document.getElementById("overlayEnabled").checked;
-  const raw = document.getElementById("trackedSites").value;
   const overlaySizeSlider = document.getElementById("overlaySizeSlider");
   const overlaySizeInput = document.getElementById("overlaySizeInput");
   const overlayBackgroundColorInput = document.getElementById(
@@ -293,27 +263,12 @@ async function saveSettings() {
     menuTextScaleInput?.value,
     parseOverlayScale(menuTextScaleSlider?.value, 1),
   );
-  const trackedSites = raw
-    .split("\n")
-    .map((site) => site.trim())
-    .filter(Boolean);
-  const normalizedSites = trackedSites
-    .map(normalizeTrackedEntry)
-    .filter(Boolean);
-  const normalizedSet = new Set(normalizedSites);
-  const timeLimits = {};
-  Object.entries(currentTimeLimits || {}).forEach(([key, value]) => {
-    if (!normalizedSet.has(key)) return;
-    const parsed = parseTimeLimit(value);
-    if (parsed != null) {
-      timeLimits[key] = parsed;
-    }
-  });
 
   await chrome.runtime.sendMessage({
     type: "SET_SETTINGS",
-    trackedSites,
-    timeLimits,
+    trackedSites: currentTrackedSites,
+    timeLimits: currentTimeLimits,
+    tabLimits: currentTabLimits,
     overlayEnabled,
     overlayScale,
     overlayBackgroundColor,
@@ -355,17 +310,11 @@ async function refreshTimes() {
     type: "GET_TODAY_TIMES",
   });
   if (!timesRes?.ok) return;
-  const active = document.activeElement;
-  const isEditingLimit =
-    active instanceof HTMLInputElement && active.dataset.limitInput === "true";
-  if (!isEditingLimit) {
-    renderTimes(
-      currentTrackedSites,
-      timesRes.times || {},
-      timesRes.key || "",
-      currentTimeLimits,
-    );
-  }
+  renderTimes(
+    currentTrackedSites,
+    timesRes.times || {},
+    timesRes.key || "",
+  );
   const currentSiteRes = await chrome.runtime.sendMessage({
     type: "GET_ACTIVE_SITE_TOTAL",
   });
@@ -379,7 +328,6 @@ document.getElementById("reset").addEventListener("click", resetToday);
 const overlaySizeSlider = document.getElementById("overlaySizeSlider");
 const overlaySizeInput = document.getElementById("overlaySizeInput");
 const overlayEnabled = document.getElementById("overlayEnabled");
-const trackedSitesInput = document.getElementById("trackedSites");
 const overlayBackgroundColorInput =
   document.getElementById("overlayBackgroundColor");
 const overlayTextColorInput = document.getElementById("overlayTextColor");
@@ -479,12 +427,6 @@ if (menuTextScaleSlider && menuTextScaleInput) {
   });
 }
 
-
-if (trackedSitesInput) {
-  trackedSitesInput.addEventListener("input", () => {
-    scheduleSave();
-  });
-}
 
 load().then(() => {
   if (refreshTimer) clearInterval(refreshTimer);

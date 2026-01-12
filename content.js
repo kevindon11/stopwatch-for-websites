@@ -143,7 +143,7 @@ function fmtLimitMinutes(limit) {
 function formatTabStatus(count, limit) {
   if (!Number.isFinite(limit) || limit <= 0) return null;
   const safeCount = Number.isFinite(count) ? count : 0;
-  return `${safeCount}/${limit} tabs open`;
+  return `${safeCount}/${limit}`;
 }
 
 function fmtMinutes(ms) {

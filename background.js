@@ -6,6 +6,7 @@ let lastTickMs = null;
 let activeWindowId = null;
 let popupOpen = false;
 let idleState = "active";
+const newTabIds = new Set();
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -227,14 +228,6 @@ async function sendTabStatusForAll(settings = null) {
   const keys = Object.keys(currentSettings.tabLimits || {});
   for (const key of keys) {
     await sendTabStatusForKey(key, currentSettings);
-  }
-}
-
-async function enforceTabLimitsForAllTabs() {
-  const settings = await getSettings();
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    await enforceTabLimit(tab, settings);
   }
 }
 
@@ -483,7 +476,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     await updateOverlay(tabId);
   }
 
-  await enforceTabLimit(tab);
+  if (newTabIds.has(tabId)) {
+    newTabIds.delete(tabId);
+    await enforceTabLimit(tab);
+  }
   await sendTabStatusForTab(tab);
 });
 
@@ -566,7 +562,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch(() => []);
       if (tab?.id) await updateOverlay(tab.id);
       if (tab?.id) await updateBlockState(tab.id, activeKey);
-      await enforceTabLimitsForAllTabs();
       await sendTabStatusForAll();
 
       sendResponse({ ok: true });
@@ -647,6 +642,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.tabs.onCreated.addListener((tab) => {
+  if (Number.isInteger(tab?.id)) {
+    newTabIds.add(tab.id);
+  }
   void enforceTabLimit(tab);
   void sendTabStatusForTab(tab);
 });
@@ -658,7 +656,6 @@ chrome.tabs.onRemoved.addListener(() => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "sync") return;
   if (changes.timeLimits || changes.tabLimits || changes.trackedSites) {
-    void enforceTabLimitsForAllTabs();
     void sendTabStatusForAll();
   }
 });

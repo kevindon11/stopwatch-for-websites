@@ -330,7 +330,7 @@ function ensureBlockOverlay() {
   blockEl.style.width = "100%";
   blockEl.style.height = "100%";
   blockEl.style.zIndex = "2147483647";
-  blockEl.style.background = "rgba(0, 0, 0, 0.92)";
+  blockEl.style.background = "rgba(0, 0, 0, 1)";
   blockEl.style.color = "#f7f7f7";
   blockEl.style.display = "flex";
   blockEl.style.alignItems = "center";

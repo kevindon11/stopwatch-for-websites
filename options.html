@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Site Stopwatch - Options</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Site Stopwatch Options</h1>
+      <p class="muted">
+        Configure tracked sites and set per-site time and tab limits.
+      </p>
+
+      <form id="options-form">
+        <div class="limits-header">
+          <div>Site</div>
+          <div>Limit (min)</div>
+          <div>Tabs</div>
+          <div></div>
+        </div>
+        <div id="limits-list" class="limits-list"></div>
+
+        <div class="actions">
+          <button type="button" id="add-site">Add site</button>
+          <button type="submit" id="save">Save</button>
+          <span id="status" class="status" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+
+      <section class="help">
+        <h2>Examples</h2>
+        <ul>
+          <li><code>youtube.com</code> is different from <code>music.youtube.com</code>.</li>
+          <li>Use <code>example.com/path</code> to track a specific path.</li>
+        </ul>
+      </section>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

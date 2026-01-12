@@ -80,21 +80,7 @@ function applyMenuTextScale(scale) {
   document.body.style.fontSize = `${safeScale}em`;
 }
 
-function parseTimeLimit(value) {
-  if (value === "" || value == null) return null;
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
-function parseTabLimit(value) {
-  if (value === "" || value == null) return null;
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.floor(parsed);
-}
-
-function renderTimes(trackedSites, times, key, timeLimits, tabLimits) {
+function renderTimes(trackedSites, times, key) {
   const dateKey = document.getElementById("dateKey");
   if (dateKey) {
     dateKey.textContent = key ? `Totals for ${key}` : "Totals for today";
@@ -114,8 +100,6 @@ function renderTimes(trackedSites, times, key, timeLimits, tabLimits) {
   header.innerHTML = `
     <div>Site</div>
     <div>Elapsed</div>
-    <div>Limit (min)</div>
-    <div>Tabs</div>
   `;
   list.appendChild(header);
 
@@ -136,52 +120,8 @@ function renderTimes(trackedSites, times, key, timeLimits, tabLimits) {
       left.textContent = siteKey;
       const right = document.createElement("div");
       right.textContent = fmt(time);
-      const limitInput = document.createElement("input");
-      limitInput.type = "number";
-      limitInput.min = "1";
-      limitInput.step = "1";
-      limitInput.inputMode = "numeric";
-      limitInput.placeholder = "—";
-      limitInput.className = "limit-input";
-      limitInput.dataset.limitInput = "true";
-      const limitValue = parseTimeLimit(timeLimits?.[siteKey]);
-      if (limitValue) {
-        limitInput.value = String(limitValue);
-      }
-      limitInput.addEventListener("input", () => {
-        const nextValue = parseTimeLimit(limitInput.value);
-        if (nextValue == null) {
-          delete currentTimeLimits[siteKey];
-        } else {
-          currentTimeLimits[siteKey] = nextValue;
-        }
-        scheduleSave();
-      });
-      const tabLimitInput = document.createElement("input");
-      tabLimitInput.type = "number";
-      tabLimitInput.min = "1";
-      tabLimitInput.step = "1";
-      tabLimitInput.inputMode = "numeric";
-      tabLimitInput.placeholder = "—";
-      tabLimitInput.className = "tab-limit-input";
-      tabLimitInput.dataset.tabLimitInput = "true";
-      const tabLimitValue = parseTabLimit(tabLimits?.[siteKey]);
-      if (tabLimitValue) {
-        tabLimitInput.value = String(tabLimitValue);
-      }
-      tabLimitInput.addEventListener("input", () => {
-        const nextValue = parseTabLimit(tabLimitInput.value);
-        if (nextValue == null) {
-          delete currentTabLimits[siteKey];
-        } else {
-          currentTabLimits[siteKey] = nextValue;
-        }
-        scheduleSave();
-      });
       row.appendChild(left);
       row.appendChild(right);
-      row.appendChild(limitInput);
-      row.appendChild(tabLimitInput);
       list.appendChild(row);
     });
 }
@@ -234,7 +174,6 @@ async function load() {
   currentTimeLimits = settingsRes?.settings?.timeLimits || {};
   currentTabLimits = settingsRes?.settings?.tabLimits || {};
   document.getElementById("overlayEnabled").checked = overlayEnabled;
-  document.getElementById("trackedSites").value = trackedSites.join("\n");
   currentTrackedSites = trackedSites;
   const overlaySizeSlider = document.getElementById("overlaySizeSlider");
   const overlaySizeInput = document.getElementById("overlaySizeInput");
@@ -281,7 +220,7 @@ async function load() {
   }
   const key = timesRes?.key || "";
   const times = timesRes?.times || {};
-  renderTimes(trackedSites, times, key, currentTimeLimits, currentTabLimits);
+  renderTimes(trackedSites, times, key);
   renderCurrentSiteTotal(currentSiteRes?.ok ? currentSiteRes : { tracked: false });
   applyMenuTextScale(menuTextScale);
 
@@ -300,7 +239,6 @@ async function saveSettings() {
   setStatus("Saving...");
 
   const overlayEnabled = document.getElementById("overlayEnabled").checked;
-  const raw = document.getElementById("trackedSites").value;
   const overlaySizeSlider = document.getElementById("overlaySizeSlider");
   const overlaySizeInput = document.getElementById("overlaySizeInput");
   const overlayBackgroundColorInput = document.getElementById(
@@ -325,36 +263,12 @@ async function saveSettings() {
     menuTextScaleInput?.value,
     parseOverlayScale(menuTextScaleSlider?.value, 1),
   );
-  const trackedSites = raw
-    .split("\n")
-    .map((site) => site.trim())
-    .filter(Boolean);
-  const normalizedSites = trackedSites
-    .map(normalizeTrackedEntry)
-    .filter(Boolean);
-  const normalizedSet = new Set(normalizedSites);
-  const timeLimits = {};
-  const tabLimits = {};
-  Object.entries(currentTimeLimits || {}).forEach(([key, value]) => {
-    if (!normalizedSet.has(key)) return;
-    const parsed = parseTimeLimit(value);
-    if (parsed != null) {
-      timeLimits[key] = parsed;
-    }
-  });
-  Object.entries(currentTabLimits || {}).forEach(([key, value]) => {
-    if (!normalizedSet.has(key)) return;
-    const parsed = parseTabLimit(value);
-    if (parsed != null) {
-      tabLimits[key] = parsed;
-    }
-  });
 
   await chrome.runtime.sendMessage({
     type: "SET_SETTINGS",
-    trackedSites,
-    timeLimits,
-    tabLimits,
+    trackedSites: currentTrackedSites,
+    timeLimits: currentTimeLimits,
+    tabLimits: currentTabLimits,
     overlayEnabled,
     overlayScale,
     overlayBackgroundColor,
@@ -396,20 +310,11 @@ async function refreshTimes() {
     type: "GET_TODAY_TIMES",
   });
   if (!timesRes?.ok) return;
-  const active = document.activeElement;
-  const isEditingLimit =
-    active instanceof HTMLInputElement &&
-    (active.dataset.limitInput === "true" ||
-      active.dataset.tabLimitInput === "true");
-  if (!isEditingLimit) {
-    renderTimes(
-      currentTrackedSites,
-      timesRes.times || {},
-      timesRes.key || "",
-      currentTimeLimits,
-      currentTabLimits,
-    );
-  }
+  renderTimes(
+    currentTrackedSites,
+    timesRes.times || {},
+    timesRes.key || "",
+  );
   const currentSiteRes = await chrome.runtime.sendMessage({
     type: "GET_ACTIVE_SITE_TOTAL",
   });
@@ -423,7 +328,6 @@ document.getElementById("reset").addEventListener("click", resetToday);
 const overlaySizeSlider = document.getElementById("overlaySizeSlider");
 const overlaySizeInput = document.getElementById("overlaySizeInput");
 const overlayEnabled = document.getElementById("overlayEnabled");
-const trackedSitesInput = document.getElementById("trackedSites");
 const overlayBackgroundColorInput =
   document.getElementById("overlayBackgroundColor");
 const overlayTextColorInput = document.getElementById("overlayTextColor");
@@ -523,12 +427,6 @@ if (menuTextScaleSlider && menuTextScaleInput) {
   });
 }
 
-
-if (trackedSitesInput) {
-  trackedSitesInput.addEventListener("input", () => {
-    scheduleSave();
-  });
-}
 
 load().then(() => {
   if (refreshTimer) clearInterval(refreshTimer);

@@ -15,9 +15,9 @@ function todayKey(date = new Date()) {
 }
 
 const DEFAULT_OVERLAY_THEME = {
-  backgroundColor: "#7a7a7a",
-  textColor: "#f7f7f7",
-  backgroundOpacity: 0.85,
+  backgroundColor: "#0f172a",
+  textColor: "#ffffff",
+  backgroundOpacity: 0.92,
   clickThrough: true,
 };
 
@@ -46,6 +46,18 @@ function normalizeTimeLimits(raw) {
   return limits;
 }
 
+function normalizeTabLimits(raw) {
+  const limits = {};
+  if (!raw || typeof raw !== "object") return limits;
+  Object.entries(raw).forEach(([key, value]) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      limits[key] = Math.floor(parsed);
+    }
+  });
+  return limits;
+}
+
 async function getSettings() {
   const {
     trackedSites,
@@ -56,6 +68,7 @@ async function getSettings() {
     overlayBackgroundOpacity,
     menuTextScale,
     timeLimits,
+    tabLimits,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
     overlayEnabled: true,
@@ -65,6 +78,7 @@ async function getSettings() {
     overlayBackgroundOpacity: DEFAULT_OVERLAY_THEME.backgroundOpacity,
     menuTextScale: 1,
     timeLimits: {},
+    tabLimits: {},
   });
   return {
     trackedSites,
@@ -87,6 +101,7 @@ async function getSettings() {
       ? Number.parseFloat(menuTextScale)
       : 1,
     timeLimits: normalizeTimeLimits(timeLimits),
+    tabLimits: normalizeTabLimits(tabLimits),
   };
 }
 
@@ -144,6 +159,83 @@ function getMatchForUrl(url, list) {
   });
 
   return bestMatch;
+}
+
+function getUrlFromTab(tab) {
+  return tab?.pendingUrl || tab?.url || null;
+}
+
+function getMatchForTab(tab, trackedSites) {
+  const rawUrl = getUrlFromTab(tab);
+  if (!rawUrl) return null;
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  return getMatchForUrl(url, trackedSites);
+}
+
+async function getTabsByKey(key, trackedSites) {
+  const tabs = await chrome.tabs.query({});
+  return tabs.filter((tab) => {
+    const match = getMatchForTab(tab, trackedSites);
+    return match?.key === key;
+  });
+}
+
+async function enforceTabLimit(tab, settings = null) {
+  if (!tab || !tab.id) return;
+  const currentSettings = settings || (await getSettings());
+  const match = getMatchForTab(tab, currentSettings.trackedSites);
+  if (!match) return;
+  const limit = Number(currentSettings.tabLimits?.[match.key]);
+  if (!Number.isFinite(limit) || limit <= 0) return;
+
+  const matching = await getTabsByKey(match.key, currentSettings.trackedSites);
+  if (matching.length <= limit) return;
+
+  await chrome.tabs.remove(tab.id);
+}
+
+async function sendTabStatusForKey(key, settings) {
+  const limit = Number(settings.tabLimits?.[key]);
+  if (!Number.isFinite(limit) || limit <= 0) return;
+  const matching = await getTabsByKey(key, settings.trackedSites);
+  const payload = {
+    type: "OVERLAY_TAB_STATUS",
+    key,
+    tabCount: matching.length,
+    tabLimit: limit,
+  };
+  for (const tab of matching) {
+    if (!tab.id) continue;
+    chrome.tabs.sendMessage(tab.id, payload).catch(() => {});
+  }
+}
+
+async function sendTabStatusForTab(tab, settings = null) {
+  const currentSettings = settings || (await getSettings());
+  const match = getMatchForTab(tab, currentSettings.trackedSites);
+  if (!match) return;
+  await sendTabStatusForKey(match.key, currentSettings);
+}
+
+async function sendTabStatusForAll(settings = null) {
+  const currentSettings = settings || (await getSettings());
+  const keys = Object.keys(currentSettings.tabLimits || {});
+  for (const key of keys) {
+    await sendTabStatusForKey(key, currentSettings);
+  }
+}
+
+async function enforceTabLimitsForAllTabs() {
+  const settings = await getSettings();
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    await enforceTabLimit(tab, settings);
+  }
 }
 
 async function addTimeForKey(key, deltaMs) {
@@ -273,6 +365,7 @@ async function updateOverlay(tabId, forceHide = false) {
     overlayTextColor,
     overlayBackgroundOpacity,
     timeLimits,
+    tabLimits,
   } = await getSettings();
 
   if (!overlayEnabled || forceHide) {
@@ -301,6 +394,13 @@ async function updateOverlay(tabId, forceHide = false) {
     return;
   }
 
+  let tabCount = null;
+  const tabLimit = Number(tabLimits?.[match.key]);
+  if (Number.isFinite(tabLimit) && tabLimit > 0) {
+    const matching = await getTabsByKey(match.key, trackedSites);
+    tabCount = matching.length;
+  }
+
   sendMessageToTab(tabId, {
     type: "OVERLAY_SHOW",
     key: match.key,
@@ -310,6 +410,8 @@ async function updateOverlay(tabId, forceHide = false) {
     backgroundOpacity: overlayBackgroundOpacity,
     clickThrough: true,
     limitMinutes: timeLimits?.[match.key],
+    tabCount,
+    tabLimit: Number.isFinite(tabLimit) && tabLimit > 0 ? tabLimit : null,
   });
   await updateBlockState(tabId, match.key);
 }
@@ -380,6 +482,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     await setActiveFromTab(tab);
     await updateOverlay(tabId);
   }
+
+  await enforceTabLimit(tab);
+  await sendTabStatusForTab(tab);
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
@@ -443,6 +548,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ? parsedMenuTextScale
         : 1;
       const timeLimits = normalizeTimeLimits(msg.timeLimits);
+      const tabLimits = normalizeTabLimits(msg.tabLimits);
       await chrome.storage.sync.set({
         trackedSites,
         overlayEnabled,
@@ -452,6 +558,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         overlayBackgroundOpacity,
         menuTextScale,
         timeLimits,
+        tabLimits,
       });
 
       const [tab] = await chrome.tabs
@@ -459,6 +566,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch(() => []);
       if (tab?.id) await updateOverlay(tab.id);
       if (tab?.id) await updateBlockState(tab.id, activeKey);
+      await enforceTabLimitsForAllTabs();
+      await sendTabStatusForAll();
 
       sendResponse({ ok: true });
       return;
@@ -535,4 +644,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   })();
 
   return true;
+});
+
+chrome.tabs.onCreated.addListener((tab) => {
+  void enforceTabLimit(tab);
+  void sendTabStatusForTab(tab);
+});
+
+chrome.tabs.onRemoved.addListener(() => {
+  void sendTabStatusForAll();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "sync") return;
+  if (changes.timeLimits || changes.tabLimits || changes.trackedSites) {
+    void enforceTabLimitsForAllTabs();
+    void sendTabStatusForAll();
+  }
 });

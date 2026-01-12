@@ -5,6 +5,8 @@ let dragState = null;
 let overlayObserver = null;
 let overlayScale = 1;
 let overlayLimitMinutes = null;
+let overlayTabCount = null;
+let overlayTabLimit = null;
 let blockEl = null;
 let blockState = {
   key: null,
@@ -12,9 +14,9 @@ let blockState = {
   totalMs: 0,
 };
 let overlayTheme = {
-  backgroundColor: "#7a7a7a",
-  textColor: "#f7f7f7",
-  backgroundOpacity: 0.85,
+  backgroundColor: "#0f172a",
+  textColor: "#ffffff",
+  backgroundOpacity: 0.92,
   clickThrough: true,
 };
 let clickThroughOverride = false;
@@ -26,7 +28,7 @@ const HOVER_REVEAL_DELAY_MS = 1500;
 const BASE_OVERLAY_STYLE = {
   paddingY: 8,
   paddingX: 12,
-  borderRadius: 12,
+  borderRadius: 999,
   fontSize: 13,
   gap: 8,
   minHeight: 34,
@@ -138,6 +140,12 @@ function fmtLimitMinutes(limit) {
   return `${isWhole ? limit : limit.toFixed(1)}m`;
 }
 
+function formatTabStatus(count, limit) {
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+  const safeCount = Number.isFinite(count) ? count : 0;
+  return `${safeCount}/${limit} tabs open`;
+}
+
 function fmtMinutes(ms) {
   const totalMinutes = Math.floor(ms / 60000);
   return `${totalMinutes}m`;
@@ -154,9 +162,11 @@ function ensureOverlay() {
 
   overlayEl = document.createElement("div");
   overlayEl.style.position = "fixed";
-  overlayEl.style.top = "12px";
-  overlayEl.style.left = "25%";
-  overlayEl.style.transform = "translateX(-50%)";
+  overlayEl.style.top = "auto";
+  overlayEl.style.left = "auto";
+  overlayEl.style.right = "16px";
+  overlayEl.style.bottom = "16px";
+  overlayEl.style.transform = "none";
   overlayEl.style.zIndex = "2147483647";
   overlayEl.style.padding = "8px 12px";
   overlayEl.style.borderRadius = "12px";
@@ -164,8 +174,8 @@ function ensureOverlay() {
     "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
   overlayEl.style.fontSize = "13px";
   overlayEl.style.lineHeight = "1";
-  overlayEl.style.background = "rgba(120,120,120,0.85)";
-  overlayEl.style.color = "#f7f7f7";
+  overlayEl.style.background = "rgba(15,23,42,0.92)";
+  overlayEl.style.color = "#ffffff";
   overlayEl.style.boxShadow = "0 8px 24px rgba(0,0,0,0.2)";
   overlayEl.style.userSelect = "none";
   overlayEl.style.cursor = "grab";
@@ -367,9 +377,11 @@ async function refreshOverlayTime() {
   const node = overlayEl.querySelector("#sst_time");
   if (!node) return;
   const limitLabel = fmtLimitMinutes(overlayLimitMinutes);
-  node.textContent = limitLabel
+  const tabLabel = formatTabStatus(overlayTabCount, overlayTabLimit);
+  const timeLabel = limitLabel
     ? `${fmtMinutesSeconds(ms)}/${limitLabel}`
     : fmtMinutesSeconds(ms);
+  node.textContent = tabLabel ? `${timeLabel}, ${tabLabel}` : timeLabel;
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -379,16 +391,18 @@ chrome.runtime.onMessage.addListener((msg) => {
     overlayLimitMinutes = Number.isFinite(msg.limitMinutes)
       ? msg.limitMinutes
       : null;
+    overlayTabCount = Number.isFinite(msg.tabCount) ? msg.tabCount : null;
+    overlayTabLimit = Number.isFinite(msg.tabLimit) ? msg.tabLimit : null;
     overlayTheme = {
       backgroundColor:
         typeof msg.backgroundColor === "string"
           ? msg.backgroundColor
-          : "#7a7a7a",
+          : "#0f172a",
       textColor:
-        typeof msg.textColor === "string" ? msg.textColor : "#f7f7f7",
+        typeof msg.textColor === "string" ? msg.textColor : "#ffffff",
       backgroundOpacity: Number.isFinite(msg.backgroundOpacity)
         ? msg.backgroundOpacity
-        : 0.85,
+        : 0.92,
       clickThrough: !!msg.clickThrough,
     };
     clickThroughOverride = false;
@@ -409,6 +423,15 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 
   if (msg?.type === "OVERLAY_TICK") {
+    if (!overlayDismissed) {
+      refreshOverlayTime();
+    }
+  }
+
+  if (msg?.type === "OVERLAY_TAB_STATUS") {
+    if (!overlayKey || msg.key !== overlayKey) return;
+    overlayTabCount = Number.isFinite(msg.tabCount) ? msg.tabCount : null;
+    overlayTabLimit = Number.isFinite(msg.tabLimit) ? msg.tabLimit : null;
     if (!overlayDismissed) {
       refreshOverlayTime();
     }

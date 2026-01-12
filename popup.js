@@ -73,6 +73,7 @@ function parseOverlayScale(value, fallback) {
 
 let currentTrackedSites = [];
 let currentTimeLimits = {};
+let currentTabLimits = {};
 
 function applyMenuTextScale(scale) {
   const safeScale = Number.isFinite(scale) ? scale : 1;
@@ -86,7 +87,14 @@ function parseTimeLimit(value) {
   return parsed;
 }
 
-function renderTimes(trackedSites, times, key, timeLimits) {
+function parseTabLimit(value) {
+  if (value === "" || value == null) return null;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.floor(parsed);
+}
+
+function renderTimes(trackedSites, times, key, timeLimits, tabLimits) {
   const dateKey = document.getElementById("dateKey");
   if (dateKey) {
     dateKey.textContent = key ? `Totals for ${key}` : "Totals for today";
@@ -107,6 +115,7 @@ function renderTimes(trackedSites, times, key, timeLimits) {
     <div>Site</div>
     <div>Elapsed</div>
     <div>Limit (min)</div>
+    <div>Tabs</div>
   `;
   list.appendChild(header);
 
@@ -148,9 +157,31 @@ function renderTimes(trackedSites, times, key, timeLimits) {
         }
         scheduleSave();
       });
+      const tabLimitInput = document.createElement("input");
+      tabLimitInput.type = "number";
+      tabLimitInput.min = "1";
+      tabLimitInput.step = "1";
+      tabLimitInput.inputMode = "numeric";
+      tabLimitInput.placeholder = "—";
+      tabLimitInput.className = "tab-limit-input";
+      tabLimitInput.dataset.tabLimitInput = "true";
+      const tabLimitValue = parseTabLimit(tabLimits?.[siteKey]);
+      if (tabLimitValue) {
+        tabLimitInput.value = String(tabLimitValue);
+      }
+      tabLimitInput.addEventListener("input", () => {
+        const nextValue = parseTabLimit(tabLimitInput.value);
+        if (nextValue == null) {
+          delete currentTabLimits[siteKey];
+        } else {
+          currentTabLimits[siteKey] = nextValue;
+        }
+        scheduleSave();
+      });
       row.appendChild(left);
       row.appendChild(right);
       row.appendChild(limitInput);
+      row.appendChild(tabLimitInput);
       list.appendChild(row);
     });
 }
@@ -201,6 +232,7 @@ async function load() {
     ? settingsRes.settings.menuTextScale
     : 1;
   currentTimeLimits = settingsRes?.settings?.timeLimits || {};
+  currentTabLimits = settingsRes?.settings?.tabLimits || {};
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
   currentTrackedSites = trackedSites;
@@ -249,7 +281,7 @@ async function load() {
   }
   const key = timesRes?.key || "";
   const times = timesRes?.times || {};
-  renderTimes(trackedSites, times, key, currentTimeLimits);
+  renderTimes(trackedSites, times, key, currentTimeLimits, currentTabLimits);
   renderCurrentSiteTotal(currentSiteRes?.ok ? currentSiteRes : { tracked: false });
   applyMenuTextScale(menuTextScale);
 
@@ -302,6 +334,7 @@ async function saveSettings() {
     .filter(Boolean);
   const normalizedSet = new Set(normalizedSites);
   const timeLimits = {};
+  const tabLimits = {};
   Object.entries(currentTimeLimits || {}).forEach(([key, value]) => {
     if (!normalizedSet.has(key)) return;
     const parsed = parseTimeLimit(value);
@@ -309,11 +342,19 @@ async function saveSettings() {
       timeLimits[key] = parsed;
     }
   });
+  Object.entries(currentTabLimits || {}).forEach(([key, value]) => {
+    if (!normalizedSet.has(key)) return;
+    const parsed = parseTabLimit(value);
+    if (parsed != null) {
+      tabLimits[key] = parsed;
+    }
+  });
 
   await chrome.runtime.sendMessage({
     type: "SET_SETTINGS",
     trackedSites,
     timeLimits,
+    tabLimits,
     overlayEnabled,
     overlayScale,
     overlayBackgroundColor,
@@ -357,13 +398,16 @@ async function refreshTimes() {
   if (!timesRes?.ok) return;
   const active = document.activeElement;
   const isEditingLimit =
-    active instanceof HTMLInputElement && active.dataset.limitInput === "true";
+    active instanceof HTMLInputElement &&
+    (active.dataset.limitInput === "true" ||
+      active.dataset.tabLimitInput === "true");
   if (!isEditingLimit) {
     renderTimes(
       currentTrackedSites,
       timesRes.times || {},
       timesRes.key || "",
       currentTimeLimits,
+      currentTabLimits,
     );
   }
   const currentSiteRes = await chrome.runtime.sendMessage({

@@ -72,13 +72,21 @@ function parseOverlayScale(value, fallback) {
 }
 
 let currentTrackedSites = [];
+let currentTimeLimits = {};
 
 function applyMenuTextScale(scale) {
   const safeScale = Number.isFinite(scale) ? scale : 1;
   document.body.style.fontSize = `${safeScale}em`;
 }
 
-function renderTimes(trackedSites, times, key) {
+function parseTimeLimit(value) {
+  if (value === "" || value == null) return null;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function renderTimes(trackedSites, times, key, timeLimits) {
   const dateKey = document.getElementById("dateKey");
   if (dateKey) {
     dateKey.textContent = key ? `Totals for ${key}` : "Totals for today";
@@ -87,6 +95,20 @@ function renderTimes(trackedSites, times, key) {
   const list = document.getElementById("list");
   if (!list) return;
   list.innerHTML = "";
+
+  if (!trackedSites.length) {
+    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "site-row site-header";
+  header.innerHTML = `
+    <div>Site</div>
+    <div>Elapsed</div>
+    <div>Limit (min)</div>
+  `;
+  list.appendChild(header);
 
   trackedSites
     .map(normalizeTrackedEntry)
@@ -99,19 +121,38 @@ function renderTimes(trackedSites, times, key) {
     .forEach((site) => {
       const { site: siteKey, time } = site;
       const row = document.createElement("div");
-      row.className = "site";
+      row.className = "site-row";
+      row.dataset.siteKey = siteKey;
       const left = document.createElement("div");
       left.textContent = siteKey;
       const right = document.createElement("div");
       right.textContent = fmt(time);
+      const limitInput = document.createElement("input");
+      limitInput.type = "number";
+      limitInput.min = "1";
+      limitInput.step = "1";
+      limitInput.inputMode = "numeric";
+      limitInput.placeholder = "—";
+      limitInput.className = "limit-input";
+      limitInput.dataset.limitInput = "true";
+      const limitValue = parseTimeLimit(timeLimits?.[siteKey]);
+      if (limitValue) {
+        limitInput.value = String(limitValue);
+      }
+      limitInput.addEventListener("input", () => {
+        const nextValue = parseTimeLimit(limitInput.value);
+        if (nextValue == null) {
+          delete currentTimeLimits[siteKey];
+        } else {
+          currentTimeLimits[siteKey] = nextValue;
+        }
+        scheduleSave();
+      });
       row.appendChild(left);
       row.appendChild(right);
+      row.appendChild(limitInput);
       list.appendChild(row);
     });
-
-  if (!trackedSites.length) {
-    list.innerHTML = `<div class="muted">Add sites above to start tracking.</div>`;
-  }
 }
 
 function renderCurrentSiteTotal(data) {
@@ -159,6 +200,7 @@ async function load() {
   const menuTextScale = Number.isFinite(settingsRes?.settings?.menuTextScale)
     ? settingsRes.settings.menuTextScale
     : 1;
+  currentTimeLimits = settingsRes?.settings?.timeLimits || {};
   document.getElementById("overlayEnabled").checked = overlayEnabled;
   document.getElementById("trackedSites").value = trackedSites.join("\n");
   currentTrackedSites = trackedSites;
@@ -207,7 +249,7 @@ async function load() {
   }
   const key = timesRes?.key || "";
   const times = timesRes?.times || {};
-  renderTimes(trackedSites, times, key);
+  renderTimes(trackedSites, times, key, currentTimeLimits);
   renderCurrentSiteTotal(currentSiteRes?.ok ? currentSiteRes : { tracked: false });
   applyMenuTextScale(menuTextScale);
 
@@ -255,10 +297,23 @@ async function saveSettings() {
     .split("\n")
     .map((site) => site.trim())
     .filter(Boolean);
+  const normalizedSites = trackedSites
+    .map(normalizeTrackedEntry)
+    .filter(Boolean);
+  const normalizedSet = new Set(normalizedSites);
+  const timeLimits = {};
+  Object.entries(currentTimeLimits || {}).forEach(([key, value]) => {
+    if (!normalizedSet.has(key)) return;
+    const parsed = parseTimeLimit(value);
+    if (parsed != null) {
+      timeLimits[key] = parsed;
+    }
+  });
 
   await chrome.runtime.sendMessage({
     type: "SET_SETTINGS",
     trackedSites,
+    timeLimits,
     overlayEnabled,
     overlayScale,
     overlayBackgroundColor,
@@ -300,7 +355,17 @@ async function refreshTimes() {
     type: "GET_TODAY_TIMES",
   });
   if (!timesRes?.ok) return;
-  renderTimes(currentTrackedSites, timesRes.times || {}, timesRes.key || "");
+  const active = document.activeElement;
+  const isEditingLimit =
+    active instanceof HTMLInputElement && active.dataset.limitInput === "true";
+  if (!isEditingLimit) {
+    renderTimes(
+      currentTrackedSites,
+      timesRes.times || {},
+      timesRes.key || "",
+      currentTimeLimits,
+    );
+  }
   const currentSiteRes = await chrome.runtime.sendMessage({
     type: "GET_ACTIVE_SITE_TOTAL",
   });

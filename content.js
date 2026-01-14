@@ -28,6 +28,8 @@ let overlayInteractionEnabled = false;
 let hoverTimer = null;
 
 const HOVER_REVEAL_DELAY_MS = 1500;
+const ACTIVITY_THROTTLE_MS = 1000;
+let lastActivitySent = 0;
 
 const BASE_OVERLAY_STYLE = {
   paddingY: 8,
@@ -405,6 +407,27 @@ async function refreshOverlayTime() {
   node.textContent = tabLabel ? `${timeLabel}, ${tabLabel}` : timeLabel;
 }
 
+function sendActivityPing() {
+  const now = Date.now();
+  if (now - lastActivitySent < ACTIVITY_THROTTLE_MS) return;
+  lastActivitySent = now;
+  chrome.runtime.sendMessage({ type: "USER_ACTIVITY" }).catch(() => {});
+}
+
+function registerActivityListeners() {
+  const activityEvents = [
+    "mousemove",
+    "mousedown",
+    "keydown",
+    "scroll",
+    "touchstart",
+  ];
+  activityEvents.forEach((eventName) => {
+    document.addEventListener(eventName, sendActivityPing, { passive: true });
+  });
+  sendActivityPing();
+}
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "OVERLAY_SHOW") {
     overlayKey = msg.key || null;
@@ -485,3 +508,4 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 chrome.runtime.sendMessage({ type: "REQUEST_OVERLAY_STATE" }).catch(() => {});
 chrome.runtime.sendMessage({ type: "REQUEST_BLOCK_STATE" }).catch(() => {});
+registerActivityListeners();

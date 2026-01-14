@@ -7,6 +7,7 @@ let activeWindowId = null;
 let popupOpen = false;
 let idleState = "active";
 const newTabIds = new Set();
+const lastActivityByTabId = new Map();
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -59,6 +60,18 @@ function normalizeBreakLimits(raw) {
   return limits;
 }
 
+function normalizeIdleLimits(raw) {
+  const limits = {};
+  if (!raw || typeof raw !== "object") return limits;
+  Object.entries(raw).forEach(([key, value]) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      limits[key] = parsed;
+    }
+  });
+  return limits;
+}
+
 function normalizeTabLimits(raw) {
   const limits = {};
   if (!raw || typeof raw !== "object") return limits;
@@ -83,6 +96,7 @@ async function getSettings() {
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
+    idleLimits,
     tabLimits,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
@@ -95,6 +109,7 @@ async function getSettings() {
     timeLimits: {},
     breakAfterLimits: {},
     breakDurationLimits: {},
+    idleLimits: {},
     tabLimits: {},
   });
   return {
@@ -120,6 +135,7 @@ async function getSettings() {
     timeLimits: normalizeTimeLimits(timeLimits),
     breakAfterLimits: normalizeBreakLimits(breakAfterLimits),
     breakDurationLimits: normalizeBreakLimits(breakDurationLimits),
+    idleLimits: normalizeIdleLimits(idleLimits),
     tabLimits: normalizeTabLimits(tabLimits),
   };
 }
@@ -273,6 +289,10 @@ function getCycleStoreKey() {
   return `cycle_${todayKey()}`;
 }
 
+function getCycleUpdatedStoreKey() {
+  return `cycle_updated_${todayKey()}`;
+}
+
 function getCooldownStoreKey() {
   return `cooldown_${todayKey()}`;
 }
@@ -291,6 +311,40 @@ async function setCycleTimeForKey(key, value) {
   await chrome.storage.local.set({ [storeKey]: perKey });
 }
 
+async function getCycleUpdatedForKey(key) {
+  const storeKey = getCycleUpdatedStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  return data[storeKey]?.[key] || 0;
+}
+
+async function setCycleUpdatedForKey(key, timestamp) {
+  const storeKey = getCycleUpdatedStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  const perKey = data[storeKey] || {};
+  perKey[key] = timestamp;
+  await chrome.storage.local.set({ [storeKey]: perKey });
+}
+
+async function applyCycleDecayForKey(key, now) {
+  if (!key) return 0;
+  const [cycleMs, lastUpdated] = await Promise.all([
+    getCycleTimeForKey(key),
+    getCycleUpdatedForKey(key),
+  ]);
+  if (!lastUpdated) {
+    await setCycleUpdatedForKey(key, now);
+    return cycleMs;
+  }
+  const elapsed = now - lastUpdated;
+  if (elapsed <= 0) return cycleMs;
+  const next = Math.max(0, cycleMs - elapsed);
+  if (next !== cycleMs || lastUpdated !== now) {
+    await setCycleTimeForKey(key, next);
+    await setCycleUpdatedForKey(key, now);
+  }
+  return next;
+}
+
 async function addCycleTimeForKey(key, deltaMs) {
   if (!key || deltaMs <= 0) return 0;
   const storeKey = getCycleStoreKey();
@@ -299,6 +353,7 @@ async function addCycleTimeForKey(key, deltaMs) {
   const next = (perKey[key] || 0) + deltaMs;
   perKey[key] = next;
   await chrome.storage.local.set({ [storeKey]: perKey });
+  await setCycleUpdatedForKey(key, Date.now());
   return next;
 }
 
@@ -318,7 +373,14 @@ async function setCooldownUntilForKey(key, timestamp) {
 
 async function resetCooldownStateForKey(key) {
   await setCycleTimeForKey(key, 0);
+  await setCycleUpdatedForKey(key, Date.now());
   await setCooldownUntilForKey(key, 0);
+}
+
+function getIdleLimitMs(settings, key) {
+  const limitSeconds = Number.parseFloat(settings.idleLimits?.[key]);
+  if (!Number.isFinite(limitSeconds) || limitSeconds <= 0) return null;
+  return limitSeconds * 1000;
 }
 
 async function setActiveFromTab(tab) {
@@ -360,6 +422,9 @@ async function setActiveFromTab(tab) {
   activeKey = match.key;
   lastTickMs = canTrackTime() ? Date.now() : null;
   activeWindowId = tab.windowId ?? null;
+  const now = Date.now();
+  lastActivityByTabId.set(tab.id, now);
+  await applyCycleDecayForKey(activeKey, now);
   await updateBadge(activeKey);
   await updateBlockState(tab.id, activeKey);
 }
@@ -367,9 +432,26 @@ async function setActiveFromTab(tab) {
 async function flushActiveTime() {
   if (!activeKey || !lastTickMs) return;
   const now = Date.now();
-  const delta = now - lastTickMs;
-  lastTickMs = now;
   const settings = await getSettings();
+  const limitMs = getIdleLimitMs(settings, activeKey);
+  const lastActivity = lastActivityByTabId.get(activeTabId);
+  let delta = now - lastTickMs;
+  if (
+    Number.isFinite(limitMs) &&
+    limitMs > 0 &&
+    Number.isFinite(lastActivity)
+  ) {
+    const idleStartedAt = lastActivity + limitMs;
+    if (now >= idleStartedAt) {
+      if (idleStartedAt <= lastTickMs) {
+        lastTickMs = now;
+        return;
+      }
+      delta = idleStartedAt - lastTickMs;
+    }
+  }
+  lastTickMs = now;
+  if (delta <= 0) return;
   const breakAfterMinutes = Number.parseFloat(
     settings.breakAfterLimits?.[activeKey],
   );
@@ -398,6 +480,7 @@ async function flushActiveTime() {
       const blockedUntil = now + breakDurationMinutes * 60000;
       await setCooldownUntilForKey(activeKey, blockedUntil);
       await setCycleTimeForKey(activeKey, 0);
+      await setCycleUpdatedForKey(activeKey, now);
     }
   }
 
@@ -673,6 +756,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const timeLimits = normalizeTimeLimits(msg.timeLimits);
       const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
       const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
+      const idleLimits = normalizeIdleLimits(msg.idleLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
       await chrome.storage.sync.set({
         trackedSites,
@@ -685,6 +769,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         timeLimits,
         breakAfterLimits,
         breakDurationLimits,
+        idleLimits,
         tabLimits,
       });
 
@@ -705,7 +790,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await chrome.storage.local.set({ [storeKey]: {} });
       const cycleKey = `cycle_${key}`;
       const cooldownKey = `cooldown_${key}`;
-      await chrome.storage.local.set({ [cycleKey]: {}, [cooldownKey]: {} });
+      const cycleUpdatedKey = `cycle_updated_${key}`;
+      await chrome.storage.local.set({
+        [cycleKey]: {},
+        [cooldownKey]: {},
+        [cycleUpdatedKey]: {},
+      });
 
       lastTickMs = Date.now();
       await updateBadge(activeKey);
@@ -770,6 +860,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         totalMs: data[storeKey]?.[match.key] || 0,
       });
     }
+
+    if (msg?.type === "USER_ACTIVITY") {
+      const tabId = sender?.tab?.id;
+      if (Number.isInteger(tabId)) {
+        lastActivityByTabId.set(tabId, Date.now());
+      }
+      sendResponse({ ok: true });
+      return;
+    }
   })();
 
   return true;
@@ -783,7 +882,8 @@ chrome.tabs.onCreated.addListener((tab) => {
   void sendTabStatusForTab(tab);
 });
 
-chrome.tabs.onRemoved.addListener(() => {
+chrome.tabs.onRemoved.addListener((tabId) => {
+  lastActivityByTabId.delete(tabId);
   void sendTabStatusForAll();
 });
 

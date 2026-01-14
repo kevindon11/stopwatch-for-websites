@@ -971,8 +971,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     if (msg?.type === "GET_EDIT_LOCKS") {
-      const locks = await getEditLocks();
-      sendResponse({ ok: true, locks });
+      const settings = await getSettings();
+      const waitLimits = normalizeWaitLimits(settings.waitLimits);
+      const existingLocks = await getEditLocks();
+      const now = Date.now();
+      const nextLocks = { ...existingLocks };
+      let changed = false;
+
+      for (const [key, value] of Object.entries(waitLimits)) {
+        const waitMinutes = Number.parseFloat(value);
+        if (!Number.isFinite(waitMinutes) || waitMinutes <= 0) {
+          if (key in nextLocks) {
+            delete nextLocks[key];
+            changed = true;
+          }
+          continue;
+        }
+        const lockUntil = now + waitMinutes * 60000;
+        const existingUntil = Number.parseInt(nextLocks[key], 10);
+        if (!Number.isFinite(existingUntil) || existingUntil < lockUntil) {
+          nextLocks[key] = lockUntil;
+          changed = true;
+        }
+      }
+
+      for (const key of Object.keys(nextLocks)) {
+        if (!(key in waitLimits)) {
+          delete nextLocks[key];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        await setEditLocks(nextLocks);
+      }
+      sendResponse({ ok: true, locks: nextLocks });
       return;
     }
 

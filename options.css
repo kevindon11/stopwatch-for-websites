@@ -25,12 +25,17 @@ h1 {
 
 .limits-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px 140px 140px 140px 140px 90px auto;
-  gap: 12px;
+  grid-template-columns:
+    minmax(160px, 1.2fr)
+    repeat(5, minmax(120px, 1fr))
+    minmax(90px, 0.8fr)
+    auto;
+  gap: 10px;
   font-weight: 600;
   color: #555;
   margin-top: 16px;
   margin-bottom: 8px;
+  font-size: 13px;
 }
 
 .limits-list {
@@ -41,8 +46,12 @@ h1 {
 
 .limit-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px 140px 140px 140px 140px 90px auto;
-  gap: 12px;
+  grid-template-columns:
+    minmax(160px, 1.2fr)
+    repeat(5, minmax(120px, 1fr))
+    minmax(90px, 0.8fr)
+    auto;
+  gap: 10px;
   align-items: center;
 }
 
@@ -59,6 +68,16 @@ h1 {
   padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.limits-table {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.limits-header,
+.limit-row {
+  min-width: 980px;
 }
 
 .action-cell {

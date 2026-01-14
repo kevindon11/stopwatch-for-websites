@@ -1,8 +1,15 @@
 const limitsList = document.getElementById("limits-list");
 const addButton = document.getElementById("add-site");
 const status = document.getElementById("status");
+const resetButton = document.getElementById("reset-today");
+const resetCountdown = document.getElementById("reset-countdown");
 
 let cachedSettings = null;
+let cachedLocks = {};
+let resetTimerId = null;
+let resetAvailableAt = null;
+
+const RESET_DELAY_MS = 2 * 60 * 1000;
 
 function normalizeHost(hostname) {
   return (hostname || "").toLowerCase().replace(/^www\./, "");
@@ -79,6 +86,23 @@ function createRow(entry = {}) {
   breakDurationInput.placeholder = "—";
   breakDurationInput.value = entry.breakDuration || "";
 
+  const idleLimitInput = document.createElement("input");
+  idleLimitInput.type = "number";
+  idleLimitInput.min = "1";
+  idleLimitInput.step = "1";
+  idleLimitInput.placeholder = "—";
+  idleLimitInput.value = entry.idleLimit || "";
+
+  const waitLimitInput = document.createElement("input");
+  waitLimitInput.type = "number";
+  waitLimitInput.min = "1";
+  waitLimitInput.step = "1";
+  waitLimitInput.placeholder = "—";
+  waitLimitInput.value = entry.waitLimit || "";
+
+  const actionCell = document.createElement("div");
+  actionCell.className = "action-cell";
+
   const removeButton = document.createElement("button");
   removeButton.type = "button";
   removeButton.textContent = "Remove";
@@ -86,12 +110,21 @@ function createRow(entry = {}) {
     row.remove();
   });
 
+  const lockStatus = document.createElement("span");
+  lockStatus.className = "lock-status";
+  lockStatus.hidden = true;
+
+  actionCell.appendChild(removeButton);
+  actionCell.appendChild(lockStatus);
+
   row.appendChild(siteInput);
   row.appendChild(timeInput);
   row.appendChild(breakAfterInput);
   row.appendChild(breakDurationInput);
+  row.appendChild(idleLimitInput);
+  row.appendChild(waitLimitInput);
   row.appendChild(tabInput);
-  row.appendChild(removeButton);
+  row.appendChild(actionCell);
   return row;
 }
 
@@ -100,13 +133,91 @@ function setStatus(message, tone = "ok") {
   status.style.color = tone === "error" ? "#b91c1c" : "#0f766e";
 }
 
+function formatRemaining(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  if (seconds === 0) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function applyLockState(row, remainingMs) {
+  const inputs = row.querySelectorAll("input");
+  const removeButton = row.querySelector("button");
+  const lockStatus = row.querySelector(".lock-status");
+  const locked = remainingMs > 0;
+  inputs.forEach((input) => {
+    input.disabled = locked;
+    if (locked) {
+      input.title = `Locked for ${formatRemaining(remainingMs)}`;
+    } else {
+      input.removeAttribute("title");
+    }
+  });
+  if (removeButton) {
+    removeButton.disabled = locked;
+    removeButton.textContent = locked ? "Locked" : "Remove";
+  }
+  if (lockStatus) {
+    lockStatus.hidden = !locked;
+    lockStatus.textContent = locked
+      ? `Locked for ${formatRemaining(remainingMs)}`
+      : "";
+  }
+}
+
+function formatCountdown(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function updateResetCountdown() {
+  if (!resetButton || !resetCountdown || !resetAvailableAt) return;
+  const remaining = resetAvailableAt - Date.now();
+  if (remaining <= 0) {
+    resetButton.disabled = false;
+    resetCountdown.textContent = "Ready";
+    if (resetTimerId) {
+      clearInterval(resetTimerId);
+      resetTimerId = null;
+    }
+    return;
+  }
+  resetButton.disabled = true;
+  resetCountdown.textContent = `Available in ${formatCountdown(remaining)}`;
+}
+
+function startResetCountdown() {
+  if (!resetButton || !resetCountdown) return;
+  resetAvailableAt = Date.now() + RESET_DELAY_MS;
+  updateResetCountdown();
+  if (resetTimerId) clearInterval(resetTimerId);
+  resetTimerId = setInterval(updateResetCountdown, 1000);
+}
+
+async function handleResetToday() {
+  if (!resetButton || !resetCountdown) return;
+  resetButton.disabled = true;
+  resetCountdown.textContent = "Resetting…";
+  await chrome.runtime.sendMessage({ type: "RESET_TODAY" });
+  startResetCountdown();
+  await loadOptions();
+}
+
 async function loadOptions() {
   const settingsRes = await chrome.runtime.sendMessage({ type: "GET_SETTINGS" });
+  const locksRes = await chrome.runtime.sendMessage({ type: "GET_EDIT_LOCKS" });
   cachedSettings = settingsRes?.settings || {};
+  cachedLocks = locksRes?.locks || {};
   const trackedSites = cachedSettings.trackedSites || [];
   const timeLimits = cachedSettings.timeLimits || {};
   const breakAfterLimits = cachedSettings.breakAfterLimits || {};
   const breakDurationLimits = cachedSettings.breakDurationLimits || {};
+  const idleLimits = cachedSettings.idleLimits || {};
+  const waitLimits = cachedSettings.waitLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
   limitsList.innerHTML = "";
 
@@ -117,15 +228,21 @@ async function loadOptions() {
 
   trackedSites.forEach((site) => {
     const key = normalizeTrackedEntry(site);
-    limitsList.appendChild(
-      createRow({
-        site,
-        timeLimit: timeLimits[key] ?? "",
-        breakAfter: breakAfterLimits[key] ?? "",
-        breakDuration: breakDurationLimits[key] ?? "",
-        tabLimit: tabLimits[key] ?? "",
-      }),
-    );
+    const row = createRow({
+      site,
+      timeLimit: timeLimits[key] ?? "",
+      breakAfter: breakAfterLimits[key] ?? "",
+      breakDuration: breakDurationLimits[key] ?? "",
+      idleLimit: idleLimits[key] ?? "",
+      waitLimit: waitLimits[key] ?? "",
+      tabLimit: tabLimits[key] ?? "",
+    });
+    const lockedUntil = Number.parseInt(cachedLocks[key], 10);
+    if (Number.isFinite(lockedUntil)) {
+      const remaining = lockedUntil - Date.now();
+      applyLockState(row, remaining);
+    }
+    limitsList.appendChild(row);
   });
 }
 
@@ -136,6 +253,8 @@ async function saveOptions(event) {
   const timeLimits = {};
   const breakAfterLimits = {};
   const breakDurationLimits = {};
+  const idleLimits = {};
+  const waitLimits = {};
   const tabLimits = {};
 
   for (const row of rows) {
@@ -144,6 +263,8 @@ async function saveOptions(event) {
       timeInput,
       breakAfterInput,
       breakDurationInput,
+      idleLimitInput,
+      waitLimitInput,
       tabInput,
     ] = row.querySelectorAll("input");
     const siteRaw = siteInput.value.trim();
@@ -166,18 +287,28 @@ async function saveOptions(event) {
     if (breakDuration != null) {
       breakDurationLimits[key] = breakDuration;
     }
+    const idleLimit = parseLimit(idleLimitInput.value);
+    if (idleLimit != null) {
+      idleLimits[key] = idleLimit;
+    }
+    const waitLimit = parseLimit(waitLimitInput.value);
+    if (waitLimit != null) {
+      waitLimits[key] = waitLimit;
+    }
     const tabLimit = parseTabLimit(tabInput.value);
     if (tabLimit != null) {
       tabLimits[key] = tabLimit;
     }
   }
 
-  await chrome.runtime.sendMessage({
+  const response = await chrome.runtime.sendMessage({
     type: "SET_SETTINGS",
     trackedSites,
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
+    idleLimits,
+    waitLimits,
     tabLimits,
     overlayEnabled: cachedSettings?.overlayEnabled,
     overlayScale: cachedSettings?.overlayScale,
@@ -186,6 +317,11 @@ async function saveOptions(event) {
     overlayBackgroundOpacity: cachedSettings?.overlayBackgroundOpacity,
     menuTextScale: cachedSettings?.menuTextScale,
   });
+
+  if (!response?.ok) {
+    setStatus(response?.error || "Unable to save settings.", "error");
+    return;
+  }
 
   setStatus("Saved.");
   setTimeout(() => {
@@ -201,3 +337,8 @@ addButton.addEventListener("click", () => {
 document.getElementById("options-form").addEventListener("submit", saveOptions);
 
 loadOptions();
+
+if (resetButton) {
+  resetButton.addEventListener("click", handleResetToday);
+  startResetCountdown();
+}

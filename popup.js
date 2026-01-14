@@ -294,16 +294,6 @@ function scheduleSave() {
 }
 
 
-async function resetToday() {
-  const status = document.getElementById("status");
-  status.textContent = "Resetting...";
-  await chrome.runtime.sendMessage({ type: "RESET_TODAY" });
-  status.textContent = "Reset";
-  setTimeout(() => {
-    status.textContent = "";
-  }, 900);
-  await load();
-}
 
 async function refreshTimes() {
   const timesRes = await chrome.runtime.sendMessage({
@@ -322,8 +312,6 @@ async function refreshTimes() {
     renderCurrentSiteTotal(currentSiteRes);
   }
 }
-
-document.getElementById("reset").addEventListener("click", resetToday);
 
 const overlaySizeSlider = document.getElementById("overlaySizeSlider");
 const overlaySizeInput = document.getElementById("overlaySizeInput");

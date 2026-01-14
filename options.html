@@ -14,15 +14,19 @@
       </p>
 
       <form id="options-form">
-        <div class="limits-header">
-          <div>Site</div>
-          <div>Daily limit (min)</div>
-          <div>Break after (min)</div>
-          <div>Block for (min)</div>
-          <div>Tabs</div>
-          <div></div>
+        <div class="limits-table">
+          <div class="limits-header">
+            <div>Site</div>
+            <div>Daily limit (min)</div>
+            <div>Break after (min)</div>
+            <div>Block for (min)</div>
+            <div>Idle pause (sec)</div>
+            <div>Edit wait (min)</div>
+            <div>Tabs</div>
+            <div></div>
+          </div>
+          <div id="limits-list" class="limits-list"></div>
         </div>
-        <div id="limits-list" class="limits-list"></div>
 
         <div class="actions">
           <button type="button" id="add-site">Add site</button>
@@ -37,6 +41,19 @@
           <li><code>youtube.com</code> is different from <code>music.youtube.com</code>.</li>
           <li>Use <code>example.com/path</code> to track a specific path.</li>
         </ul>
+      </section>
+
+      <section class="reset">
+        <h2>Reset today</h2>
+        <p class="muted">
+          Reset today’s totals after the countdown finishes.
+        </p>
+        <div class="reset-row">
+          <button type="button" id="reset-today" disabled>
+            Reset today
+          </button>
+          <span id="reset-countdown" class="muted" aria-live="polite"></span>
+        </div>
       </section>
     </main>
     <script src="options.js"></script>

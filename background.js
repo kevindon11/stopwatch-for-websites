@@ -7,6 +7,7 @@ let activeWindowId = null;
 let popupOpen = false;
 let idleState = "active";
 const newTabIds = new Set();
+const lastActivityByTabId = new Map();
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -59,6 +60,30 @@ function normalizeBreakLimits(raw) {
   return limits;
 }
 
+function normalizeWaitLimits(raw) {
+  const limits = {};
+  if (!raw || typeof raw !== "object") return limits;
+  Object.entries(raw).forEach(([key, value]) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      limits[key] = parsed;
+    }
+  });
+  return limits;
+}
+
+function normalizeIdleLimits(raw) {
+  const limits = {};
+  if (!raw || typeof raw !== "object") return limits;
+  Object.entries(raw).forEach(([key, value]) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      limits[key] = parsed;
+    }
+  });
+  return limits;
+}
+
 function normalizeTabLimits(raw) {
   const limits = {};
   if (!raw || typeof raw !== "object") return limits;
@@ -83,6 +108,8 @@ async function getSettings() {
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
+    waitLimits,
+    idleLimits,
     tabLimits,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
@@ -95,6 +122,8 @@ async function getSettings() {
     timeLimits: {},
     breakAfterLimits: {},
     breakDurationLimits: {},
+    waitLimits: {},
+    idleLimits: {},
     tabLimits: {},
   });
   return {
@@ -120,6 +149,8 @@ async function getSettings() {
     timeLimits: normalizeTimeLimits(timeLimits),
     breakAfterLimits: normalizeBreakLimits(breakAfterLimits),
     breakDurationLimits: normalizeBreakLimits(breakDurationLimits),
+    waitLimits: normalizeWaitLimits(waitLimits),
+    idleLimits: normalizeIdleLimits(idleLimits),
     tabLimits: normalizeTabLimits(tabLimits),
   };
 }
@@ -151,6 +182,16 @@ function parseTrackedEntry(entry) {
     path,
     key: `${host}${path}`,
   };
+}
+
+function buildSiteKeyMap(entries = []) {
+  const map = new Map();
+  entries.forEach((entry) => {
+    const parsed = parseTrackedEntry(entry);
+    if (!parsed) return;
+    map.set(parsed.key, entry);
+  });
+  return map;
 }
 
 function getMatchForUrl(url, list) {
@@ -273,6 +314,10 @@ function getCycleStoreKey() {
   return `cycle_${todayKey()}`;
 }
 
+function getCycleUpdatedStoreKey() {
+  return `cycle_updated_${todayKey()}`;
+}
+
 function getCooldownStoreKey() {
   return `cooldown_${todayKey()}`;
 }
@@ -283,12 +328,55 @@ async function getCycleTimeForKey(key) {
   return data[storeKey]?.[key] || 0;
 }
 
+async function getEditLocks() {
+  const data = await chrome.storage.local.get({ editLocks: {} });
+  return data.editLocks || {};
+}
+
+async function setEditLocks(locks) {
+  await chrome.storage.local.set({ editLocks: locks });
+}
+
 async function setCycleTimeForKey(key, value) {
   const storeKey = getCycleStoreKey();
   const data = await chrome.storage.local.get({ [storeKey]: {} });
   const perKey = data[storeKey] || {};
   perKey[key] = value;
   await chrome.storage.local.set({ [storeKey]: perKey });
+}
+
+async function getCycleUpdatedForKey(key) {
+  const storeKey = getCycleUpdatedStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  return data[storeKey]?.[key] || 0;
+}
+
+async function setCycleUpdatedForKey(key, timestamp) {
+  const storeKey = getCycleUpdatedStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  const perKey = data[storeKey] || {};
+  perKey[key] = timestamp;
+  await chrome.storage.local.set({ [storeKey]: perKey });
+}
+
+async function applyCycleDecayForKey(key, now) {
+  if (!key) return 0;
+  const [cycleMs, lastUpdated] = await Promise.all([
+    getCycleTimeForKey(key),
+    getCycleUpdatedForKey(key),
+  ]);
+  if (!lastUpdated) {
+    await setCycleUpdatedForKey(key, now);
+    return cycleMs;
+  }
+  const elapsed = now - lastUpdated;
+  if (elapsed <= 0) return cycleMs;
+  const next = Math.max(0, cycleMs - elapsed);
+  if (next !== cycleMs || lastUpdated !== now) {
+    await setCycleTimeForKey(key, next);
+    await setCycleUpdatedForKey(key, now);
+  }
+  return next;
 }
 
 async function addCycleTimeForKey(key, deltaMs) {
@@ -299,6 +387,7 @@ async function addCycleTimeForKey(key, deltaMs) {
   const next = (perKey[key] || 0) + deltaMs;
   perKey[key] = next;
   await chrome.storage.local.set({ [storeKey]: perKey });
+  await setCycleUpdatedForKey(key, Date.now());
   return next;
 }
 
@@ -318,7 +407,14 @@ async function setCooldownUntilForKey(key, timestamp) {
 
 async function resetCooldownStateForKey(key) {
   await setCycleTimeForKey(key, 0);
+  await setCycleUpdatedForKey(key, Date.now());
   await setCooldownUntilForKey(key, 0);
+}
+
+function getIdleLimitMs(settings, key) {
+  const limitSeconds = Number.parseFloat(settings.idleLimits?.[key]);
+  if (!Number.isFinite(limitSeconds) || limitSeconds <= 0) return null;
+  return limitSeconds * 1000;
 }
 
 async function setActiveFromTab(tab) {
@@ -360,6 +456,9 @@ async function setActiveFromTab(tab) {
   activeKey = match.key;
   lastTickMs = canTrackTime() ? Date.now() : null;
   activeWindowId = tab.windowId ?? null;
+  const now = Date.now();
+  lastActivityByTabId.set(tab.id, now);
+  await applyCycleDecayForKey(activeKey, now);
   await updateBadge(activeKey);
   await updateBlockState(tab.id, activeKey);
 }
@@ -367,9 +466,26 @@ async function setActiveFromTab(tab) {
 async function flushActiveTime() {
   if (!activeKey || !lastTickMs) return;
   const now = Date.now();
-  const delta = now - lastTickMs;
-  lastTickMs = now;
   const settings = await getSettings();
+  const limitMs = getIdleLimitMs(settings, activeKey);
+  const lastActivity = lastActivityByTabId.get(activeTabId);
+  let delta = now - lastTickMs;
+  if (
+    Number.isFinite(limitMs) &&
+    limitMs > 0 &&
+    Number.isFinite(lastActivity)
+  ) {
+    const idleStartedAt = lastActivity + limitMs;
+    if (now >= idleStartedAt) {
+      if (idleStartedAt <= lastTickMs) {
+        lastTickMs = now;
+        return;
+      }
+      delta = idleStartedAt - lastTickMs;
+    }
+  }
+  lastTickMs = now;
+  if (delta <= 0) return;
   const breakAfterMinutes = Number.parseFloat(
     settings.breakAfterLimits?.[activeKey],
   );
@@ -398,6 +514,7 @@ async function flushActiveTime() {
       const blockedUntil = now + breakDurationMinutes * 60000;
       await setCooldownUntilForKey(activeKey, blockedUntil);
       await setCycleTimeForKey(activeKey, 0);
+      await setCycleUpdatedForKey(activeKey, now);
     }
   }
 
@@ -646,6 +763,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     if (msg?.type === "SET_SETTINGS") {
+      const existingSettings = await getSettings();
       const trackedSites = Array.isArray(msg.trackedSites)
         ? msg.trackedSites
         : DEFAULT_SITES;
@@ -673,7 +791,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const timeLimits = normalizeTimeLimits(msg.timeLimits);
       const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
       const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
+      const waitLimits = normalizeWaitLimits(msg.waitLimits);
+      const idleLimits = normalizeIdleLimits(msg.idleLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
+
+      const lockMap = await getEditLocks();
+      const now = Date.now();
+      const existingSites = buildSiteKeyMap(existingSettings.trackedSites);
+      const nextSites = buildSiteKeyMap(trackedSites);
+      const lockedKeys = Object.entries(lockMap)
+        .filter(([, lockedUntil]) => Number(lockedUntil) > now)
+        .map(([key]) => key);
+
+      const hasChangesForKey = (key) => {
+        const currentSite = existingSites.get(key);
+        const nextSite = nextSites.get(key);
+        if (!nextSite) return true;
+        if (currentSite && currentSite !== nextSite) return true;
+        if ((existingSettings.timeLimits?.[key] ?? null) !==
+          (timeLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.breakAfterLimits?.[key] ?? null) !==
+          (breakAfterLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.breakDurationLimits?.[key] ?? null) !==
+          (breakDurationLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.waitLimits?.[key] ?? null) !==
+          (waitLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.idleLimits?.[key] ?? null) !==
+          (idleLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.tabLimits?.[key] ?? null) !==
+          (tabLimits[key] ?? null)) {
+          return true;
+        }
+        return false;
+      };
+
+      for (const key of lockedKeys) {
+        if (hasChangesForKey(key)) {
+          sendResponse({
+            ok: false,
+            error: "This site is locked from edits. Please wait before updating its settings.",
+          });
+          return;
+        }
+      }
+
       await chrome.storage.sync.set({
         trackedSites,
         overlayEnabled,
@@ -685,8 +856,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         timeLimits,
         breakAfterLimits,
         breakDurationLimits,
+        waitLimits,
+        idleLimits,
         tabLimits,
       });
+
+      const nextLocks = { ...lockMap };
+      for (const [key] of nextSites) {
+        const waitMinutes = Number.parseFloat(waitLimits[key]);
+        const didChange = hasChangesForKey(key);
+        if (didChange) {
+          if (Number.isFinite(waitMinutes) && waitMinutes > 0) {
+            nextLocks[key] = now + waitMinutes * 60000;
+          } else {
+            delete nextLocks[key];
+          }
+        } else if (!Number.isFinite(waitMinutes) || waitMinutes <= 0) {
+          delete nextLocks[key];
+        }
+      }
+      for (const key of Object.keys(nextLocks)) {
+        if (!nextSites.has(key)) {
+          delete nextLocks[key];
+        }
+      }
+      await setEditLocks(nextLocks);
 
       const [tab] = await chrome.tabs
         .query({ active: true, currentWindow: true })
@@ -705,7 +899,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await chrome.storage.local.set({ [storeKey]: {} });
       const cycleKey = `cycle_${key}`;
       const cooldownKey = `cooldown_${key}`;
-      await chrome.storage.local.set({ [cycleKey]: {}, [cooldownKey]: {} });
+      const cycleUpdatedKey = `cycle_updated_${key}`;
+      await chrome.storage.local.set({
+        [cycleKey]: {},
+        [cooldownKey]: {},
+        [cycleUpdatedKey]: {},
+      });
 
       lastTickMs = Date.now();
       await updateBadge(activeKey);
@@ -770,6 +969,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         totalMs: data[storeKey]?.[match.key] || 0,
       });
     }
+
+    if (msg?.type === "GET_EDIT_LOCKS") {
+      const locks = await getEditLocks();
+      sendResponse({ ok: true, locks });
+      return;
+    }
+
+    if (msg?.type === "USER_ACTIVITY") {
+      const tabId = sender?.tab?.id;
+      if (Number.isInteger(tabId)) {
+        lastActivityByTabId.set(tabId, Date.now());
+      }
+      sendResponse({ ok: true });
+      return;
+    }
   })();
 
   return true;
@@ -783,7 +997,8 @@ chrome.tabs.onCreated.addListener((tab) => {
   void sendTabStatusForTab(tab);
 });
 
-chrome.tabs.onRemoved.addListener(() => {
+chrome.tabs.onRemoved.addListener((tabId) => {
+  lastActivityByTabId.delete(tabId);
   void sendTabStatusForAll();
 });
 

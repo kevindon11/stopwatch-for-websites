@@ -8,6 +8,7 @@ let popupOpen = false;
 let idleState = "active";
 const newTabIds = new Set();
 const lastActivityByTabId = new Map();
+const TAB_LIMIT_ALLOWLIST_KEY = "tabLimitAllowlist";
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -237,6 +238,95 @@ function getMatchForTab(tab, trackedSites) {
   return getMatchForUrl(url, trackedSites);
 }
 
+function normalizeTabLimitAllowlist(raw) {
+  const allowlist = {};
+  if (!raw || typeof raw !== "object") return allowlist;
+  Object.entries(raw).forEach(([key, value]) => {
+    if (!Array.isArray(value)) return;
+    const unique = Array.from(
+      new Set(value.filter((id) => Number.isInteger(id))),
+    );
+    if (unique.length) {
+      allowlist[key] = unique;
+    }
+  });
+  return allowlist;
+}
+
+async function getTabLimitAllowlist() {
+  const data = await chrome.storage.local.get({ [TAB_LIMIT_ALLOWLIST_KEY]: {} });
+  return normalizeTabLimitAllowlist(data[TAB_LIMIT_ALLOWLIST_KEY]);
+}
+
+async function setTabLimitAllowlist(allowlist) {
+  await chrome.storage.local.set({
+    [TAB_LIMIT_ALLOWLIST_KEY]: allowlist,
+  });
+}
+
+async function updateAllowlistForTab(tab, settings = null) {
+  if (!Number.isInteger(tab?.id)) return;
+  const allowlist = await getTabLimitAllowlist();
+  if (!Object.keys(allowlist).length) return;
+  const currentSettings = settings || (await getSettings());
+  const match = getMatchForTab(tab, currentSettings.trackedSites);
+  const currentKey = match?.key || null;
+  let changed = false;
+  for (const [key, ids] of Object.entries(allowlist)) {
+    if (key === currentKey) continue;
+    const nextIds = ids.filter((id) => id !== tab.id);
+    if (nextIds.length !== ids.length) {
+      changed = true;
+      if (nextIds.length) {
+        allowlist[key] = nextIds;
+      } else {
+        delete allowlist[key];
+      }
+    }
+  }
+  if (changed) {
+    await setTabLimitAllowlist(allowlist);
+  }
+}
+
+async function pruneAllowlistForKey(key, matchingTabs, allowlist) {
+  const matchingIds = new Set(
+    matchingTabs.map((tab) => tab.id).filter((id) => Number.isInteger(id)),
+  );
+  const allowed = new Set(allowlist[key] || []);
+  const nextAllowed = Array.from(allowed).filter((id) => matchingIds.has(id));
+  if (nextAllowed.length) {
+    allowlist[key] = nextAllowed;
+  } else if (key in allowlist) {
+    delete allowlist[key];
+  }
+  return new Set(nextAllowed);
+}
+
+async function refreshAllowlistForTabLimitKeys(keys, settings) {
+  if (!keys.length) return;
+  const allowlist = await getTabLimitAllowlist();
+  for (const key of keys) {
+    const limit = Number(settings.tabLimits?.[key]);
+    if (!Number.isFinite(limit) || limit <= 0) {
+      if (key in allowlist) {
+        delete allowlist[key];
+      }
+      continue;
+    }
+    const matching = await getTabsByKey(key, settings.trackedSites);
+    const ids = matching
+      .map((tab) => tab.id)
+      .filter((id) => Number.isInteger(id));
+    if (ids.length) {
+      allowlist[key] = Array.from(new Set(ids));
+    } else if (key in allowlist) {
+      delete allowlist[key];
+    }
+  }
+  await setTabLimitAllowlist(allowlist);
+}
+
 async function getTabsByKey(key, trackedSites) {
   const tabs = await chrome.tabs.query({});
   return tabs.filter((tab) => {
@@ -254,8 +344,16 @@ async function enforceTabLimit(tab, settings = null) {
   if (!Number.isFinite(limit) || limit <= 0) return;
 
   const matching = await getTabsByKey(match.key, currentSettings.trackedSites);
+  const allowlist = await getTabLimitAllowlist();
+  const allowedIds = await pruneAllowlistForKey(
+    match.key,
+    matching,
+    allowlist,
+  );
+  await setTabLimitAllowlist(allowlist);
   if (matching.length <= limit) return;
 
+  if (allowedIds.has(tab.id)) return;
   await chrome.tabs.remove(tab.id);
 }
 
@@ -720,6 +818,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     await updateOverlay(tabId);
   }
 
+  await updateAllowlistForTab(tab);
+
   if (newTabIds.has(tabId)) {
     newTabIds.delete(tabId);
     await enforceTabLimit(tab);
@@ -794,6 +894,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const waitLimits = normalizeWaitLimits(msg.waitLimits);
       const idleLimits = normalizeIdleLimits(msg.idleLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
+      const tabLimitKeys = new Set([
+        ...Object.keys(existingSettings.tabLimits || {}),
+        ...Object.keys(tabLimits || {}),
+      ]);
+      const changedTabLimitKeys = [];
+      for (const key of tabLimitKeys) {
+        if ((existingSettings.tabLimits?.[key] ?? null) !==
+          (tabLimits[key] ?? null)) {
+          changedTabLimitKeys.push(key);
+        }
+      }
 
       const lockMap = await getEditLocks();
       const now = Date.now();
@@ -858,6 +969,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         breakDurationLimits,
         waitLimits,
         idleLimits,
+        tabLimits,
+      });
+      await refreshAllowlistForTabLimitKeys(changedTabLimitKeys, {
+        trackedSites,
         tabLimits,
       });
 
@@ -1032,6 +1147,24 @@ chrome.tabs.onCreated.addListener((tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   lastActivityByTabId.delete(tabId);
+  void (async () => {
+    const allowlist = await getTabLimitAllowlist();
+    let changed = false;
+    for (const [key, ids] of Object.entries(allowlist)) {
+      const nextIds = ids.filter((id) => id !== tabId);
+      if (nextIds.length !== ids.length) {
+        changed = true;
+        if (nextIds.length) {
+          allowlist[key] = nextIds;
+        } else {
+          delete allowlist[key];
+        }
+      }
+    }
+    if (changed) {
+      await setTabLimitAllowlist(allowlist);
+    }
+  })();
   void sendTabStatusForAll();
 });
 

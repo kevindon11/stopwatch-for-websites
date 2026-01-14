@@ -1,9 +1,15 @@
 const limitsList = document.getElementById("limits-list");
 const addButton = document.getElementById("add-site");
 const status = document.getElementById("status");
+const resetButton = document.getElementById("reset-today");
+const resetCountdown = document.getElementById("reset-countdown");
 
 let cachedSettings = null;
 let cachedLocks = {};
+let resetTimerId = null;
+let resetAvailableAt = null;
+
+const RESET_DELAY_MS = 2 * 60 * 1000;
 
 function normalizeHost(hostname) {
   return (hostname || "").toLowerCase().replace(/^www\./, "");
@@ -161,6 +167,46 @@ function applyLockState(row, remainingMs) {
   }
 }
 
+function formatCountdown(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function updateResetCountdown() {
+  if (!resetButton || !resetCountdown || !resetAvailableAt) return;
+  const remaining = resetAvailableAt - Date.now();
+  if (remaining <= 0) {
+    resetButton.disabled = false;
+    resetCountdown.textContent = "Ready";
+    if (resetTimerId) {
+      clearInterval(resetTimerId);
+      resetTimerId = null;
+    }
+    return;
+  }
+  resetButton.disabled = true;
+  resetCountdown.textContent = `Available in ${formatCountdown(remaining)}`;
+}
+
+function startResetCountdown() {
+  if (!resetButton || !resetCountdown) return;
+  resetAvailableAt = Date.now() + RESET_DELAY_MS;
+  updateResetCountdown();
+  if (resetTimerId) clearInterval(resetTimerId);
+  resetTimerId = setInterval(updateResetCountdown, 1000);
+}
+
+async function handleResetToday() {
+  if (!resetButton || !resetCountdown) return;
+  resetButton.disabled = true;
+  resetCountdown.textContent = "Resetting…";
+  await chrome.runtime.sendMessage({ type: "RESET_TODAY" });
+  startResetCountdown();
+  await loadOptions();
+}
+
 async function loadOptions() {
   const settingsRes = await chrome.runtime.sendMessage({ type: "GET_SETTINGS" });
   const locksRes = await chrome.runtime.sendMessage({ type: "GET_EDIT_LOCKS" });
@@ -291,3 +337,8 @@ addButton.addEventListener("click", () => {
 document.getElementById("options-form").addEventListener("submit", saveOptions);
 
 loadOptions();
+
+if (resetButton) {
+  resetButton.addEventListener("click", handleResetToday);
+  startResetCountdown();
+}

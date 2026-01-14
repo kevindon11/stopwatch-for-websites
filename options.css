@@ -107,6 +107,25 @@ h1 {
   padding: 16px;
 }
 
+.reset {
+  margin-top: 24px;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.reset-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.reset-row button[disabled] {
+  background: #d1d5db;
+  cursor: not-allowed;
+}
+
 code {
   background: #e2e8f0;
   padding: 2px 6px;

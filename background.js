@@ -60,6 +60,18 @@ function normalizeBreakLimits(raw) {
   return limits;
 }
 
+function normalizeWaitLimits(raw) {
+  const limits = {};
+  if (!raw || typeof raw !== "object") return limits;
+  Object.entries(raw).forEach(([key, value]) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      limits[key] = parsed;
+    }
+  });
+  return limits;
+}
+
 function normalizeIdleLimits(raw) {
   const limits = {};
   if (!raw || typeof raw !== "object") return limits;
@@ -96,6 +108,7 @@ async function getSettings() {
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
+    waitLimits,
     idleLimits,
     tabLimits,
   } = await chrome.storage.sync.get({
@@ -109,6 +122,7 @@ async function getSettings() {
     timeLimits: {},
     breakAfterLimits: {},
     breakDurationLimits: {},
+    waitLimits: {},
     idleLimits: {},
     tabLimits: {},
   });
@@ -135,6 +149,7 @@ async function getSettings() {
     timeLimits: normalizeTimeLimits(timeLimits),
     breakAfterLimits: normalizeBreakLimits(breakAfterLimits),
     breakDurationLimits: normalizeBreakLimits(breakDurationLimits),
+    waitLimits: normalizeWaitLimits(waitLimits),
     idleLimits: normalizeIdleLimits(idleLimits),
     tabLimits: normalizeTabLimits(tabLimits),
   };
@@ -167,6 +182,16 @@ function parseTrackedEntry(entry) {
     path,
     key: `${host}${path}`,
   };
+}
+
+function buildSiteKeyMap(entries = []) {
+  const map = new Map();
+  entries.forEach((entry) => {
+    const parsed = parseTrackedEntry(entry);
+    if (!parsed) return;
+    map.set(parsed.key, entry);
+  });
+  return map;
 }
 
 function getMatchForUrl(url, list) {
@@ -301,6 +326,15 @@ async function getCycleTimeForKey(key) {
   const storeKey = getCycleStoreKey();
   const data = await chrome.storage.local.get({ [storeKey]: {} });
   return data[storeKey]?.[key] || 0;
+}
+
+async function getEditLocks() {
+  const data = await chrome.storage.local.get({ editLocks: {} });
+  return data.editLocks || {};
+}
+
+async function setEditLocks(locks) {
+  await chrome.storage.local.set({ editLocks: locks });
 }
 
 async function setCycleTimeForKey(key, value) {
@@ -729,6 +763,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     if (msg?.type === "SET_SETTINGS") {
+      const existingSettings = await getSettings();
       const trackedSites = Array.isArray(msg.trackedSites)
         ? msg.trackedSites
         : DEFAULT_SITES;
@@ -756,8 +791,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const timeLimits = normalizeTimeLimits(msg.timeLimits);
       const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
       const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
+      const waitLimits = normalizeWaitLimits(msg.waitLimits);
       const idleLimits = normalizeIdleLimits(msg.idleLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
+
+      const lockMap = await getEditLocks();
+      const now = Date.now();
+      const existingSites = buildSiteKeyMap(existingSettings.trackedSites);
+      const nextSites = buildSiteKeyMap(trackedSites);
+      const lockedKeys = Object.entries(lockMap)
+        .filter(([, lockedUntil]) => Number(lockedUntil) > now)
+        .map(([key]) => key);
+
+      const hasChangesForKey = (key) => {
+        const currentSite = existingSites.get(key);
+        const nextSite = nextSites.get(key);
+        if (!nextSite) return true;
+        if (currentSite && currentSite !== nextSite) return true;
+        if ((existingSettings.timeLimits?.[key] ?? null) !==
+          (timeLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.breakAfterLimits?.[key] ?? null) !==
+          (breakAfterLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.breakDurationLimits?.[key] ?? null) !==
+          (breakDurationLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.waitLimits?.[key] ?? null) !==
+          (waitLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.idleLimits?.[key] ?? null) !==
+          (idleLimits[key] ?? null)) {
+          return true;
+        }
+        if ((existingSettings.tabLimits?.[key] ?? null) !==
+          (tabLimits[key] ?? null)) {
+          return true;
+        }
+        return false;
+      };
+
+      for (const key of lockedKeys) {
+        if (hasChangesForKey(key)) {
+          sendResponse({
+            ok: false,
+            error: "This site is locked from edits. Please wait before updating its settings.",
+          });
+          return;
+        }
+      }
+
       await chrome.storage.sync.set({
         trackedSites,
         overlayEnabled,
@@ -769,9 +856,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         timeLimits,
         breakAfterLimits,
         breakDurationLimits,
+        waitLimits,
         idleLimits,
         tabLimits,
       });
+
+      const nextLocks = { ...lockMap };
+      for (const [key] of nextSites) {
+        const waitMinutes = Number.parseFloat(waitLimits[key]);
+        const didChange = hasChangesForKey(key);
+        if (didChange) {
+          if (Number.isFinite(waitMinutes) && waitMinutes > 0) {
+            nextLocks[key] = now + waitMinutes * 60000;
+          } else {
+            delete nextLocks[key];
+          }
+        } else if (!Number.isFinite(waitMinutes) || waitMinutes <= 0) {
+          delete nextLocks[key];
+        }
+      }
+      for (const key of Object.keys(nextLocks)) {
+        if (!nextSites.has(key)) {
+          delete nextLocks[key];
+        }
+      }
+      await setEditLocks(nextLocks);
 
       const [tab] = await chrome.tabs
         .query({ active: true, currentWindow: true })
@@ -859,6 +968,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         siteKey: match.key,
         totalMs: data[storeKey]?.[match.key] || 0,
       });
+    }
+
+    if (msg?.type === "GET_EDIT_LOCKS") {
+      const locks = await getEditLocks();
+      sendResponse({ ok: true, locks });
+      return;
     }
 
     if (msg?.type === "USER_ACTIVITY") {

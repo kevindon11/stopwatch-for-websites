@@ -9,6 +9,7 @@ let idleState = "active";
 const newTabIds = new Set();
 const lastActivityByTabId = new Map();
 const TAB_LIMIT_ALLOWLIST_KEY = "tabLimitAllowlist";
+const IDLE_ACTIVITY_GRACE_MS = 30000;
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -620,7 +621,11 @@ async function flushActiveTime() {
 }
 
 function canTrackTime() {
-  return idleState === "active";
+  if (idleState === "active") return true;
+  if (!activeTabId) return false;
+  const lastActivity = lastActivityByTabId.get(activeTabId);
+  if (!Number.isFinite(lastActivity)) return false;
+  return Date.now() - lastActivity <= IDLE_ACTIVITY_GRACE_MS;
 }
 
 async function updateBadge(key) {
@@ -755,7 +760,7 @@ chrome.idle.setDetectionInterval(15);
 
 chrome.idle.queryState(15, (state) => {
   idleState = state;
-  if (state !== "active") {
+  if (state !== "active" && !canTrackTime()) {
     lastTickMs = null;
   }
 });
@@ -769,6 +774,7 @@ chrome.idle.onStateChanged.addListener(async (state) => {
     }
     return;
   }
+  if (canTrackTime()) return;
   await flushActiveTime();
   lastTickMs = null;
 });
@@ -1128,6 +1134,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const tabId = sender?.tab?.id;
       if (Number.isInteger(tabId)) {
         lastActivityByTabId.set(tabId, Date.now());
+        if (tabId === activeTabId && activeKey && !lastTickMs) {
+          if (canTrackTime()) {
+            lastTickMs = Date.now();
+          }
+        }
       }
       sendResponse({ ok: true });
       return;

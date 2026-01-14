@@ -819,10 +819,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 
   await updateAllowlistForTab(tab);
+  await enforceTabLimit(tab);
 
   if (newTabIds.has(tabId)) {
     newTabIds.delete(tabId);
-    await enforceTabLimit(tab);
   }
   await sendTabStatusForTab(tab);
 });

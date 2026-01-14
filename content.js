@@ -7,11 +7,18 @@ let overlayScale = 1;
 let overlayLimitMinutes = null;
 let overlayTabCount = null;
 let overlayTabLimit = null;
+let idleAfterSeconds = null;
+let idleTimer = null;
+let idleState = false;
 let blockEl = null;
 let blockState = {
   key: null,
   limitMinutes: null,
   totalMs: 0,
+  reason: "daily",
+  blockedUntil: 0,
+  breakAfterMinutes: null,
+  breakDurationMinutes: null,
 };
 let overlayTheme = {
   backgroundColor: "#0f172a",
@@ -35,6 +42,49 @@ const BASE_OVERLAY_STYLE = {
   closeSize: 18,
   closeFontSize: 12,
 };
+
+function clearIdleTimer() {
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+}
+
+function setIdleState(nextState) {
+  if (!overlayKey || idleState === nextState) return;
+  idleState = nextState;
+  chrome.runtime
+    .sendMessage({ type: "SITE_IDLE", key: overlayKey, idle: nextState })
+    .catch(() => {});
+}
+
+function scheduleIdleTimer() {
+  clearIdleTimer();
+  if (!Number.isFinite(idleAfterSeconds) || idleAfterSeconds <= 0) return;
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    setIdleState(true);
+  }, idleAfterSeconds * 1000);
+}
+
+function handleActivity() {
+  if (!overlayKey) return;
+  if (!Number.isFinite(idleAfterSeconds) || idleAfterSeconds <= 0) return;
+  if (idleState) {
+    setIdleState(false);
+  }
+  scheduleIdleTimer();
+}
+
+let activityListenersRegistered = false;
+function ensureActivityListeners() {
+  if (activityListenersRegistered) return;
+  activityListenersRegistered = true;
+  const events = ["mousemove", "keydown", "scroll", "click", "touchstart"];
+  events.forEach((eventName) => {
+    document.addEventListener(eventName, handleActivity, { passive: true });
+  });
+}
 
 function applyOverlayScale(scale) {
   if (!overlayEl) return;
@@ -149,6 +199,11 @@ function formatTabStatus(count, limit) {
 function fmtMinutes(ms) {
   const totalMinutes = Math.floor(ms / 60000);
   return `${totalMinutes}m`;
+}
+
+function fmtRemaining(ms) {
+  const clamped = Math.max(0, ms);
+  return fmtMinutesSeconds(clamped);
 }
 
 async function getTodayTimeForKey(key) {
@@ -344,7 +399,7 @@ function ensureBlockOverlay() {
   blockEl.style.pointerEvents = "auto";
   blockEl.innerHTML = `
     <div style="max-width: 360px;">
-      <div style="font-size: 20px; font-weight: 600; margin-bottom: 12px;">
+      <div id="sst_block_title" style="font-size: 20px; font-weight: 600; margin-bottom: 12px;">
         Time limit reached
       </div>
       <div id="sst_block_details" style="line-height: 1.5;"></div>
@@ -356,8 +411,20 @@ function ensureBlockOverlay() {
 
 function updateBlockDetails() {
   if (!blockEl) return;
+  const title = blockEl.querySelector("#sst_block_title");
   const details = blockEl.querySelector("#sst_block_details");
-  if (!details) return;
+  if (!details || !title) return;
+  if (blockState.reason === "cooldown") {
+    title.textContent = "Break time";
+    const remainingMs = (blockState.blockedUntil || 0) - Date.now();
+    const durationText = blockState.breakDurationMinutes
+      ? `${blockState.breakDurationMinutes}m`
+      : "a few minutes";
+    details.textContent = `Blocked for ${durationText} · Back in ${fmtRemaining(remainingMs)}`;
+    return;
+  }
+
+  title.textContent = "Daily limit reached";
   const limitText = blockState.limitMinutes
     ? `${blockState.limitMinutes}m`
     : "No limit";
@@ -391,6 +458,9 @@ chrome.runtime.onMessage.addListener((msg) => {
     overlayLimitMinutes = Number.isFinite(msg.limitMinutes)
       ? msg.limitMinutes
       : null;
+    idleAfterSeconds = Number.isFinite(msg.idleAfterSeconds)
+      ? msg.idleAfterSeconds
+      : null;
     overlayTabCount = Number.isFinite(msg.tabCount) ? msg.tabCount : null;
     overlayTabLimit = Number.isFinite(msg.tabLimit) ? msg.tabLimit : null;
     overlayTheme = {
@@ -412,6 +482,16 @@ chrome.runtime.onMessage.addListener((msg) => {
     applyOverlayScale(overlayScale);
     applyOverlayTheme(overlayTheme);
     applyClickThroughState();
+    ensureActivityListeners();
+    if (!Number.isFinite(idleAfterSeconds) || idleAfterSeconds <= 0) {
+      if (idleState) {
+        setIdleState(false);
+      }
+      clearIdleTimer();
+    } else {
+      idleState = false;
+      scheduleIdleTimer();
+    }
     if (!overlayDismissed) {
       setOverlayVisible(true);
       refreshOverlayTime();
@@ -420,11 +500,15 @@ chrome.runtime.onMessage.addListener((msg) => {
 
   if (msg?.type === "OVERLAY_HIDE") {
     setOverlayVisible(false);
+    clearIdleTimer();
   }
 
   if (msg?.type === "OVERLAY_TICK") {
     if (!overlayDismissed) {
       refreshOverlayTime();
+    }
+    if (blockEl && blockEl.style.display !== "none") {
+      updateBlockDetails();
     }
   }
 
@@ -442,6 +526,14 @@ chrome.runtime.onMessage.addListener((msg) => {
       key: msg.key || null,
       limitMinutes: Number.isFinite(msg.limitMinutes) ? msg.limitMinutes : null,
       totalMs: Number.isFinite(msg.totalMs) ? msg.totalMs : 0,
+      reason: msg.reason === "cooldown" ? "cooldown" : "daily",
+      blockedUntil: Number.isFinite(msg.blockedUntil) ? msg.blockedUntil : 0,
+      breakAfterMinutes: Number.isFinite(msg.breakAfterMinutes)
+        ? msg.breakAfterMinutes
+        : null,
+      breakDurationMinutes: Number.isFinite(msg.breakDurationMinutes)
+        ? msg.breakDurationMinutes
+        : null,
     };
     setBlockVisible(true);
   }

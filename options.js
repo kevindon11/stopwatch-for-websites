@@ -41,6 +41,11 @@ function parseTabLimit(value) {
   return parsed == null ? null : Math.floor(parsed);
 }
 
+function parseIdleLimit(value) {
+  const parsed = parseLimit(value);
+  return parsed == null ? null : Math.floor(parsed);
+}
+
 function createRow(entry = {}) {
   const row = document.createElement("div");
   row.className = "limit-row";
@@ -65,6 +70,27 @@ function createRow(entry = {}) {
   tabInput.placeholder = "—";
   tabInput.value = entry.tabLimit || "";
 
+  const breakAfterInput = document.createElement("input");
+  breakAfterInput.type = "number";
+  breakAfterInput.min = "1";
+  breakAfterInput.step = "1";
+  breakAfterInput.placeholder = "—";
+  breakAfterInput.value = entry.breakAfter || "";
+
+  const breakDurationInput = document.createElement("input");
+  breakDurationInput.type = "number";
+  breakDurationInput.min = "1";
+  breakDurationInput.step = "1";
+  breakDurationInput.placeholder = "—";
+  breakDurationInput.value = entry.breakDuration || "";
+
+  const idleAfterInput = document.createElement("input");
+  idleAfterInput.type = "number";
+  idleAfterInput.min = "1";
+  idleAfterInput.step = "1";
+  idleAfterInput.placeholder = "—";
+  idleAfterInput.value = entry.idleAfter || "";
+
   const removeButton = document.createElement("button");
   removeButton.type = "button";
   removeButton.textContent = "Remove";
@@ -74,6 +100,9 @@ function createRow(entry = {}) {
 
   row.appendChild(siteInput);
   row.appendChild(timeInput);
+  row.appendChild(breakAfterInput);
+  row.appendChild(breakDurationInput);
+  row.appendChild(idleAfterInput);
   row.appendChild(tabInput);
   row.appendChild(removeButton);
   return row;
@@ -89,6 +118,9 @@ async function loadOptions() {
   cachedSettings = settingsRes?.settings || {};
   const trackedSites = cachedSettings.trackedSites || [];
   const timeLimits = cachedSettings.timeLimits || {};
+  const breakAfterLimits = cachedSettings.breakAfterLimits || {};
+  const breakDurationLimits = cachedSettings.breakDurationLimits || {};
+  const idleAfterLimits = cachedSettings.idleAfterLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
   limitsList.innerHTML = "";
 
@@ -103,6 +135,9 @@ async function loadOptions() {
       createRow({
         site,
         timeLimit: timeLimits[key] ?? "",
+        breakAfter: breakAfterLimits[key] ?? "",
+        breakDuration: breakDurationLimits[key] ?? "",
+        idleAfter: idleAfterLimits[key] ?? "",
         tabLimit: tabLimits[key] ?? "",
       }),
     );
@@ -114,10 +149,20 @@ async function saveOptions(event) {
   const rows = Array.from(limitsList.querySelectorAll(".limit-row"));
   const trackedSites = [];
   const timeLimits = {};
+  const breakAfterLimits = {};
+  const breakDurationLimits = {};
+  const idleAfterLimits = {};
   const tabLimits = {};
 
   for (const row of rows) {
-    const [siteInput, timeInput, tabInput] = row.querySelectorAll("input");
+    const [
+      siteInput,
+      timeInput,
+      breakAfterInput,
+      breakDurationInput,
+      idleAfterInput,
+      tabInput,
+    ] = row.querySelectorAll("input");
     const siteRaw = siteInput.value.trim();
     const key = normalizeTrackedEntry(siteRaw);
     if (!siteRaw || !key) {
@@ -130,6 +175,18 @@ async function saveOptions(event) {
     if (timeLimit != null) {
       timeLimits[key] = timeLimit;
     }
+    const breakAfter = parseLimit(breakAfterInput.value);
+    if (breakAfter != null) {
+      breakAfterLimits[key] = breakAfter;
+    }
+    const breakDuration = parseLimit(breakDurationInput.value);
+    if (breakDuration != null) {
+      breakDurationLimits[key] = breakDuration;
+    }
+    const idleAfter = parseIdleLimit(idleAfterInput.value);
+    if (idleAfter != null) {
+      idleAfterLimits[key] = idleAfter;
+    }
     const tabLimit = parseTabLimit(tabInput.value);
     if (tabLimit != null) {
       tabLimits[key] = tabLimit;
@@ -140,6 +197,9 @@ async function saveOptions(event) {
     type: "SET_SETTINGS",
     trackedSites,
     timeLimits,
+    breakAfterLimits,
+    breakDurationLimits,
+    idleAfterLimits,
     tabLimits,
     overlayEnabled: cachedSettings?.overlayEnabled,
     overlayScale: cachedSettings?.overlayScale,

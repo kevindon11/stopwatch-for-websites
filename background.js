@@ -47,6 +47,18 @@ function normalizeTimeLimits(raw) {
   return limits;
 }
 
+function normalizeBreakLimits(raw) {
+  const limits = {};
+  if (!raw || typeof raw !== "object") return limits;
+  Object.entries(raw).forEach(([key, value]) => {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      limits[key] = parsed;
+    }
+  });
+  return limits;
+}
+
 function normalizeTabLimits(raw) {
   const limits = {};
   if (!raw || typeof raw !== "object") return limits;
@@ -69,6 +81,8 @@ async function getSettings() {
     overlayBackgroundOpacity,
     menuTextScale,
     timeLimits,
+    breakAfterLimits,
+    breakDurationLimits,
     tabLimits,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
@@ -79,6 +93,8 @@ async function getSettings() {
     overlayBackgroundOpacity: DEFAULT_OVERLAY_THEME.backgroundOpacity,
     menuTextScale: 1,
     timeLimits: {},
+    breakAfterLimits: {},
+    breakDurationLimits: {},
     tabLimits: {},
   });
   return {
@@ -102,6 +118,8 @@ async function getSettings() {
       ? Number.parseFloat(menuTextScale)
       : 1,
     timeLimits: normalizeTimeLimits(timeLimits),
+    breakAfterLimits: normalizeBreakLimits(breakAfterLimits),
+    breakDurationLimits: normalizeBreakLimits(breakDurationLimits),
     tabLimits: normalizeTabLimits(tabLimits),
   };
 }
@@ -251,6 +269,58 @@ async function getTodayTotalForKey(key) {
   return data[storeKey]?.[key] || 0;
 }
 
+function getCycleStoreKey() {
+  return `cycle_${todayKey()}`;
+}
+
+function getCooldownStoreKey() {
+  return `cooldown_${todayKey()}`;
+}
+
+async function getCycleTimeForKey(key) {
+  const storeKey = getCycleStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  return data[storeKey]?.[key] || 0;
+}
+
+async function setCycleTimeForKey(key, value) {
+  const storeKey = getCycleStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  const perKey = data[storeKey] || {};
+  perKey[key] = value;
+  await chrome.storage.local.set({ [storeKey]: perKey });
+}
+
+async function addCycleTimeForKey(key, deltaMs) {
+  if (!key || deltaMs <= 0) return 0;
+  const storeKey = getCycleStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  const perKey = data[storeKey] || {};
+  const next = (perKey[key] || 0) + deltaMs;
+  perKey[key] = next;
+  await chrome.storage.local.set({ [storeKey]: perKey });
+  return next;
+}
+
+async function getCooldownUntilForKey(key) {
+  const storeKey = getCooldownStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  return data[storeKey]?.[key] || 0;
+}
+
+async function setCooldownUntilForKey(key, timestamp) {
+  const storeKey = getCooldownStoreKey();
+  const data = await chrome.storage.local.get({ [storeKey]: {} });
+  const perKey = data[storeKey] || {};
+  perKey[key] = timestamp;
+  await chrome.storage.local.set({ [storeKey]: perKey });
+}
+
+async function resetCooldownStateForKey(key) {
+  await setCycleTimeForKey(key, 0);
+  await setCooldownUntilForKey(key, 0);
+}
+
 async function setActiveFromTab(tab) {
   if (!tab || !tab.id || !tab.url) {
     activeTabId = null;
@@ -299,7 +369,38 @@ async function flushActiveTime() {
   const now = Date.now();
   const delta = now - lastTickMs;
   lastTickMs = now;
+  const settings = await getSettings();
+  const breakAfterMinutes = Number.parseFloat(
+    settings.breakAfterLimits?.[activeKey],
+  );
+  const breakDurationMinutes = Number.parseFloat(
+    settings.breakDurationLimits?.[activeKey],
+  );
+  const hasBreakConfig =
+    Number.isFinite(breakAfterMinutes) &&
+    breakAfterMinutes > 0 &&
+    Number.isFinite(breakDurationMinutes) &&
+    breakDurationMinutes > 0;
+
+  if (hasBreakConfig) {
+    const blockedUntil = await getCooldownUntilForKey(activeKey);
+    if (Number.isFinite(blockedUntil) && blockedUntil > now) {
+      return;
+    }
+  }
+
   await addTimeForKey(activeKey, delta);
+
+  if (hasBreakConfig) {
+    const cycleMs = await addCycleTimeForKey(activeKey, delta);
+    const thresholdMs = breakAfterMinutes * 60000;
+    if (cycleMs >= thresholdMs) {
+      const blockedUntil = now + breakDurationMinutes * 60000;
+      await setCooldownUntilForKey(activeKey, blockedUntil);
+      await setCycleTimeForKey(activeKey, 0);
+    }
+  }
+
   await updateBadge(activeKey);
 }
 
@@ -330,23 +431,49 @@ async function updateBlockState(tabId, key) {
     sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
     return;
   }
-  const { timeLimits } = await getSettings();
+  const settings = await getSettings();
+  const { timeLimits, breakAfterLimits, breakDurationLimits } = settings;
   const limitMinutes = Number.parseFloat(timeLimits?.[key]);
   if (!Number.isFinite(limitMinutes) || limitMinutes <= 0) {
-    sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
-    return;
-  }
-  const totalMs = await getTodayTotalForKey(key);
-  if (totalMs >= limitMinutes * 60000) {
-    sendMessageToTab(tabId, {
-      type: "BLOCK_SHOW",
-      key,
-      limitMinutes,
-      totalMs,
-    });
+    // continue to break check
   } else {
-    sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
+    const totalMs = await getTodayTotalForKey(key);
+    if (totalMs >= limitMinutes * 60000) {
+      sendMessageToTab(tabId, {
+        type: "BLOCK_SHOW",
+        key,
+        limitMinutes,
+        totalMs,
+        reason: "daily",
+      });
+      return;
+    }
   }
+
+  const breakAfterMinutes = Number.parseFloat(breakAfterLimits?.[key]);
+  const breakDurationMinutes = Number.parseFloat(breakDurationLimits?.[key]);
+  const hasBreakConfig =
+    Number.isFinite(breakAfterMinutes) &&
+    breakAfterMinutes > 0 &&
+    Number.isFinite(breakDurationMinutes) &&
+    breakDurationMinutes > 0;
+  if (hasBreakConfig) {
+    const blockedUntil = await getCooldownUntilForKey(key);
+    const now = Date.now();
+    if (Number.isFinite(blockedUntil) && blockedUntil > now) {
+      sendMessageToTab(tabId, {
+        type: "BLOCK_SHOW",
+        key,
+        reason: "cooldown",
+        blockedUntil,
+        breakAfterMinutes,
+        breakDurationMinutes,
+      });
+      return;
+    }
+  }
+
+  sendMessageToTab(tabId, { type: "BLOCK_HIDE" });
 }
 
 async function updateOverlay(tabId, forceHide = false) {
@@ -544,6 +671,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ? parsedMenuTextScale
         : 1;
       const timeLimits = normalizeTimeLimits(msg.timeLimits);
+      const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
+      const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
       await chrome.storage.sync.set({
         trackedSites,
@@ -554,6 +683,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         overlayBackgroundOpacity,
         menuTextScale,
         timeLimits,
+        breakAfterLimits,
+        breakDurationLimits,
         tabLimits,
       });
 
@@ -572,6 +703,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const key = todayKey();
       const storeKey = `time_${key}`;
       await chrome.storage.local.set({ [storeKey]: {} });
+      const cycleKey = `cycle_${key}`;
+      const cooldownKey = `cooldown_${key}`;
+      await chrome.storage.local.set({ [cycleKey]: {}, [cooldownKey]: {} });
 
       lastTickMs = Date.now();
       await updateBadge(activeKey);

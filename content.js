@@ -12,6 +12,10 @@ let blockState = {
   key: null,
   limitMinutes: null,
   totalMs: 0,
+  reason: "daily",
+  blockedUntil: 0,
+  breakAfterMinutes: null,
+  breakDurationMinutes: null,
 };
 let overlayTheme = {
   backgroundColor: "#0f172a",
@@ -149,6 +153,11 @@ function formatTabStatus(count, limit) {
 function fmtMinutes(ms) {
   const totalMinutes = Math.floor(ms / 60000);
   return `${totalMinutes}m`;
+}
+
+function fmtRemaining(ms) {
+  const clamped = Math.max(0, ms);
+  return fmtMinutesSeconds(clamped);
 }
 
 async function getTodayTimeForKey(key) {
@@ -344,7 +353,7 @@ function ensureBlockOverlay() {
   blockEl.style.pointerEvents = "auto";
   blockEl.innerHTML = `
     <div style="max-width: 360px;">
-      <div style="font-size: 20px; font-weight: 600; margin-bottom: 12px;">
+      <div id="sst_block_title" style="font-size: 20px; font-weight: 600; margin-bottom: 12px;">
         Time limit reached
       </div>
       <div id="sst_block_details" style="line-height: 1.5;"></div>
@@ -356,8 +365,20 @@ function ensureBlockOverlay() {
 
 function updateBlockDetails() {
   if (!blockEl) return;
+  const title = blockEl.querySelector("#sst_block_title");
   const details = blockEl.querySelector("#sst_block_details");
-  if (!details) return;
+  if (!details || !title) return;
+  if (blockState.reason === "cooldown") {
+    title.textContent = "Break time";
+    const remainingMs = (blockState.blockedUntil || 0) - Date.now();
+    const durationText = blockState.breakDurationMinutes
+      ? `${blockState.breakDurationMinutes}m`
+      : "a few minutes";
+    details.textContent = `Blocked for ${durationText} · Back in ${fmtRemaining(remainingMs)}`;
+    return;
+  }
+
+  title.textContent = "Daily limit reached";
   const limitText = blockState.limitMinutes
     ? `${blockState.limitMinutes}m`
     : "No limit";
@@ -426,6 +447,9 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (!overlayDismissed) {
       refreshOverlayTime();
     }
+    if (blockEl && blockEl.style.display !== "none") {
+      updateBlockDetails();
+    }
   }
 
   if (msg?.type === "OVERLAY_TAB_STATUS") {
@@ -442,6 +466,14 @@ chrome.runtime.onMessage.addListener((msg) => {
       key: msg.key || null,
       limitMinutes: Number.isFinite(msg.limitMinutes) ? msg.limitMinutes : null,
       totalMs: Number.isFinite(msg.totalMs) ? msg.totalMs : 0,
+      reason: msg.reason === "cooldown" ? "cooldown" : "daily",
+      blockedUntil: Number.isFinite(msg.blockedUntil) ? msg.blockedUntil : 0,
+      breakAfterMinutes: Number.isFinite(msg.breakAfterMinutes)
+        ? msg.breakAfterMinutes
+        : null,
+      breakDurationMinutes: Number.isFinite(msg.breakDurationMinutes)
+        ? msg.breakDurationMinutes
+        : null,
     };
     setBlockVisible(true);
   }

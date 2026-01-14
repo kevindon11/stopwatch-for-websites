@@ -8,8 +8,10 @@ let cachedSettings = null;
 let cachedLocks = {};
 let resetTimerId = null;
 let resetAvailableAt = null;
+let lockRefreshId = null;
 
 const RESET_DELAY_MS = 2 * 60 * 1000;
+const LOCK_REFRESH_MS = 1000;
 
 function normalizeHost(hostname) {
   return (hostname || "").toLowerCase().replace(/^www\./, "");
@@ -142,11 +144,18 @@ function formatRemaining(ms) {
   return `${minutes}m ${seconds}s`;
 }
 
-function applyLockState(row, remainingMs) {
+function formatWaitMinutes(value) {
+  if (!Number.isFinite(value)) return "";
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(1).replace(/\.0$/, "");
+}
+
+function applyLockState(row, remainingMs, waitMinutes) {
   const inputs = row.querySelectorAll("input");
   const removeButton = row.querySelector("button");
   const lockStatus = row.querySelector(".lock-status");
   const locked = remainingMs > 0;
+  const waitMinutesText = formatWaitMinutes(waitMinutes);
   inputs.forEach((input) => {
     input.disabled = locked;
     if (locked) {
@@ -162,7 +171,9 @@ function applyLockState(row, remainingMs) {
   if (lockStatus) {
     lockStatus.hidden = !locked;
     lockStatus.textContent = locked
-      ? `Locked for ${formatRemaining(remainingMs)}`
+      ? `Locked for ${
+          waitMinutesText ? `${waitMinutesText} min` : formatRemaining(remainingMs)
+        }`
       : "";
   }
 }
@@ -223,27 +234,59 @@ async function loadOptions() {
 
   if (!trackedSites.length) {
     limitsList.appendChild(createRow());
+    refreshLockStates();
     return;
   }
 
   trackedSites.forEach((site) => {
     const key = normalizeTrackedEntry(site);
+    const waitLimit = waitLimits[key] ?? "";
     const row = createRow({
       site,
       timeLimit: timeLimits[key] ?? "",
       breakAfter: breakAfterLimits[key] ?? "",
       breakDuration: breakDurationLimits[key] ?? "",
       idleLimit: idleLimits[key] ?? "",
-      waitLimit: waitLimits[key] ?? "",
+      waitLimit,
       tabLimit: tabLimits[key] ?? "",
     });
+    row.dataset.key = key;
+    row.dataset.waitLimit = waitLimit;
     const lockedUntil = Number.parseInt(cachedLocks[key], 10);
     if (Number.isFinite(lockedUntil)) {
       const remaining = lockedUntil - Date.now();
-      applyLockState(row, remaining);
+      applyLockState(row, remaining, Number.parseFloat(waitLimit));
     }
     limitsList.appendChild(row);
   });
+  refreshLockStates();
+}
+
+function refreshLockStates() {
+  const rows = Array.from(limitsList.querySelectorAll(".limit-row"));
+  rows.forEach((row) => {
+    const key = row.dataset.key;
+    if (!key) return;
+    const lockedUntil = Number.parseInt(cachedLocks[key], 10);
+    const remaining = Number.isFinite(lockedUntil)
+      ? lockedUntil - Date.now()
+      : 0;
+    const waitLimit = Number.parseFloat(row.dataset.waitLimit);
+    applyLockState(row, remaining, waitLimit);
+  });
+  if (lockRefreshId) {
+    clearInterval(lockRefreshId);
+    lockRefreshId = null;
+  }
+  const hasActiveLocks = rows.some((row) => {
+    const key = row.dataset.key;
+    if (!key) return false;
+    const lockedUntil = Number.parseInt(cachedLocks[key], 10);
+    return Number.isFinite(lockedUntil) && lockedUntil > Date.now();
+  });
+  if (hasActiveLocks) {
+    lockRefreshId = setInterval(refreshLockStates, LOCK_REFRESH_MS);
+  }
 }
 
 async function saveOptions(event) {

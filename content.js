@@ -29,7 +29,9 @@ let hoverTimer = null;
 
 const HOVER_REVEAL_DELAY_MS = 1500;
 const ACTIVITY_THROTTLE_MS = 1000;
+const FULLSCREEN_ACTIVITY_INTERVAL_MS = 5000;
 let lastActivitySent = 0;
+let fullscreenActivityTimer = null;
 
 const BASE_OVERLAY_STYLE = {
   paddingY: 8,
@@ -414,6 +416,42 @@ function sendActivityPing() {
   chrome.runtime.sendMessage({ type: "USER_ACTIVITY" }).catch(() => {});
 }
 
+function isFullscreenVideoPlaying() {
+  if (!document.fullscreenElement) return false;
+  const video =
+    document.fullscreenElement.querySelector("video") ||
+    document.querySelector("video");
+  if (!video) return false;
+  return !video.paused && !video.ended;
+}
+
+function startFullscreenActivityMonitor() {
+  if (fullscreenActivityTimer) return;
+  fullscreenActivityTimer = setInterval(() => {
+    if (!document.fullscreenElement) return;
+    if (isFullscreenVideoPlaying()) {
+      sendActivityPing();
+    }
+  }, FULLSCREEN_ACTIVITY_INTERVAL_MS);
+}
+
+function stopFullscreenActivityMonitor() {
+  if (!fullscreenActivityTimer) return;
+  clearInterval(fullscreenActivityTimer);
+  fullscreenActivityTimer = null;
+}
+
+function handleFullscreenChange() {
+  if (document.fullscreenElement) {
+    startFullscreenActivityMonitor();
+    if (isFullscreenVideoPlaying()) {
+      sendActivityPing();
+    }
+  } else {
+    stopFullscreenActivityMonitor();
+  }
+}
+
 function registerActivityListeners() {
   const activityEvents = [
     "mousemove",
@@ -425,6 +463,8 @@ function registerActivityListeners() {
   activityEvents.forEach((eventName) => {
     document.addEventListener(eventName, sendActivityPing, { passive: true });
   });
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+  handleFullscreenChange();
   sendActivityPing();
 }
 

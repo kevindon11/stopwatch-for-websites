@@ -88,13 +88,6 @@ function createRow(entry = {}) {
   breakDurationInput.placeholder = "—";
   breakDurationInput.value = entry.breakDuration || "";
 
-  const idleLimitInput = document.createElement("input");
-  idleLimitInput.type = "number";
-  idleLimitInput.min = "1";
-  idleLimitInput.step = "1";
-  idleLimitInput.placeholder = "—";
-  idleLimitInput.value = entry.idleLimit || "";
-
   const waitLimitInput = document.createElement("input");
   waitLimitInput.type = "number";
   waitLimitInput.min = "1";
@@ -123,7 +116,6 @@ function createRow(entry = {}) {
   row.appendChild(timeInput);
   row.appendChild(breakAfterInput);
   row.appendChild(breakDurationInput);
-  row.appendChild(idleLimitInput);
   row.appendChild(waitLimitInput);
   row.appendChild(tabInput);
   row.appendChild(actionCell);
@@ -227,7 +219,6 @@ async function loadOptions() {
   const timeLimits = cachedSettings.timeLimits || {};
   const breakAfterLimits = cachedSettings.breakAfterLimits || {};
   const breakDurationLimits = cachedSettings.breakDurationLimits || {};
-  const idleLimits = cachedSettings.idleLimits || {};
   const waitLimits = cachedSettings.waitLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
   limitsList.innerHTML = "";
@@ -246,7 +237,6 @@ async function loadOptions() {
       timeLimit: timeLimits[key] ?? "",
       breakAfter: breakAfterLimits[key] ?? "",
       breakDuration: breakDurationLimits[key] ?? "",
-      idleLimit: idleLimits[key] ?? "",
       waitLimit,
       tabLimit: tabLimits[key] ?? "",
     });
@@ -296,7 +286,6 @@ async function saveOptions(event) {
   const timeLimits = {};
   const breakAfterLimits = {};
   const breakDurationLimits = {};
-  const idleLimits = {};
   const waitLimits = {};
   const tabLimits = {};
 
@@ -306,7 +295,6 @@ async function saveOptions(event) {
       timeInput,
       breakAfterInput,
       breakDurationInput,
-      idleLimitInput,
       waitLimitInput,
       tabInput,
     ] = row.querySelectorAll("input");
@@ -330,10 +318,6 @@ async function saveOptions(event) {
     if (breakDuration != null) {
       breakDurationLimits[key] = breakDuration;
     }
-    const idleLimit = parseLimit(idleLimitInput.value);
-    if (idleLimit != null) {
-      idleLimits[key] = idleLimit;
-    }
     const waitLimit = parseLimit(waitLimitInput.value);
     if (waitLimit != null) {
       waitLimits[key] = waitLimit;
@@ -350,7 +334,6 @@ async function saveOptions(event) {
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
-    idleLimits,
     waitLimits,
     tabLimits,
     overlayEnabled: cachedSettings?.overlayEnabled,

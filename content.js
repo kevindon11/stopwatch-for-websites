@@ -8,6 +8,8 @@ let overlayLimitMinutes = null;
 let overlayTabCount = null;
 let overlayTabLimit = null;
 let blockEl = null;
+let breakWarningEl = null;
+let breakWarningTimer = null;
 let blockState = {
   key: null,
   limitMinutes: null,
@@ -30,8 +32,10 @@ let hoverTimer = null;
 const HOVER_REVEAL_DELAY_MS = 1500;
 const ACTIVITY_THROTTLE_MS = 1000;
 const FULLSCREEN_ACTIVITY_INTERVAL_MS = 5000;
+const VIDEO_ACTIVITY_INTERVAL_MS = 5000;
 let lastActivitySent = 0;
 let fullscreenActivityTimer = null;
+let videoActivityTimer = null;
 
 const BASE_OVERLAY_STYLE = {
   paddingY: 8,
@@ -367,6 +371,43 @@ function ensureBlockOverlay() {
   return blockEl;
 }
 
+function ensureBreakWarning() {
+  if (breakWarningEl) return breakWarningEl;
+  breakWarningEl = document.createElement("div");
+  breakWarningEl.style.position = "fixed";
+  breakWarningEl.style.right = "16px";
+  breakWarningEl.style.bottom = "64px";
+  breakWarningEl.style.zIndex = "2147483647";
+  breakWarningEl.style.padding = "10px 14px";
+  breakWarningEl.style.borderRadius = "10px";
+  breakWarningEl.style.fontFamily =
+    "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+  breakWarningEl.style.fontSize = "13px";
+  breakWarningEl.style.fontWeight = "600";
+  breakWarningEl.style.color = "#111827";
+  breakWarningEl.style.background = "rgba(251, 146, 60, 0.95)";
+  breakWarningEl.style.boxShadow = "0 8px 24px rgba(0,0,0,0.2)";
+  breakWarningEl.style.display = "none";
+  breakWarningEl.style.pointerEvents = "none";
+  (document.body || document.documentElement).appendChild(breakWarningEl);
+  return breakWarningEl;
+}
+
+function showBreakWarning(remainingMs) {
+  const warning = ensureBreakWarning();
+  warning.textContent = `Break in ${fmtRemaining(remainingMs)}`;
+  warning.style.display = "flex";
+  if (breakWarningTimer) {
+    clearTimeout(breakWarningTimer);
+  }
+  breakWarningTimer = setTimeout(() => {
+    if (breakWarningEl) {
+      breakWarningEl.style.display = "none";
+    }
+    breakWarningTimer = null;
+  }, 10000);
+}
+
 function updateBlockDetails() {
   if (!blockEl) return;
   const title = blockEl.querySelector("#sst_block_title");
@@ -425,6 +466,16 @@ function isFullscreenVideoPlaying() {
   return !video.paused && !video.ended;
 }
 
+function isAlwaysActiveHost() {
+  const host = window.location.hostname.replace(/^www\./, "");
+  return host === "youtube.com" || host === "music.youtube.com";
+}
+
+function hasPlayingVideo() {
+  const videos = Array.from(document.querySelectorAll("video"));
+  return videos.some((video) => !video.paused && !video.ended);
+}
+
 function startFullscreenActivityMonitor() {
   if (fullscreenActivityTimer) return;
   fullscreenActivityTimer = setInterval(() => {
@@ -452,6 +503,15 @@ function handleFullscreenChange() {
   }
 }
 
+function startVideoActivityMonitor() {
+  if (videoActivityTimer) return;
+  videoActivityTimer = setInterval(() => {
+    if (isAlwaysActiveHost() || hasPlayingVideo()) {
+      sendActivityPing();
+    }
+  }, VIDEO_ACTIVITY_INTERVAL_MS);
+}
+
 function registerActivityListeners() {
   const activityEvents = [
     "mousemove",
@@ -465,6 +525,10 @@ function registerActivityListeners() {
   });
   document.addEventListener("fullscreenchange", handleFullscreenChange);
   handleFullscreenChange();
+  startVideoActivityMonitor();
+  if (isAlwaysActiveHost() || hasPlayingVideo()) {
+    sendActivityPing();
+  }
   sendActivityPing();
 }
 
@@ -543,6 +607,15 @@ chrome.runtime.onMessage.addListener((msg) => {
 
   if (msg?.type === "BLOCK_HIDE") {
     if (blockEl) blockEl.style.display = "none";
+  }
+
+  if (msg?.type === "BREAK_WARNING") {
+    const remainingMs = Number.isFinite(msg.remainingMs)
+      ? msg.remainingMs
+      : 0;
+    if (remainingMs > 0) {
+      showBreakWarning(remainingMs);
+    }
   }
 });
 

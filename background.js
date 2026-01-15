@@ -5,11 +5,12 @@ let activeKey = null;
 let lastTickMs = null;
 let activeWindowId = null;
 let popupOpen = false;
-let idleState = "active";
 const newTabIds = new Set();
 const lastActivityByTabId = new Map();
 const TAB_LIMIT_ALLOWLIST_KEY = "tabLimitAllowlist";
-const IDLE_ACTIVITY_GRACE_MS = 30000;
+const IDLE_CURSOR_PAUSE_MS = 60000;
+const BREAK_WARNING_WINDOW_MS = 30000;
+const breakWarningSent = new Set();
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -74,18 +75,6 @@ function normalizeWaitLimits(raw) {
   return limits;
 }
 
-function normalizeIdleLimits(raw) {
-  const limits = {};
-  if (!raw || typeof raw !== "object") return limits;
-  Object.entries(raw).forEach(([key, value]) => {
-    const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      limits[key] = parsed;
-    }
-  });
-  return limits;
-}
-
 function normalizeTabLimits(raw) {
   const limits = {};
   if (!raw || typeof raw !== "object") return limits;
@@ -111,7 +100,6 @@ async function getSettings() {
     breakAfterLimits,
     breakDurationLimits,
     waitLimits,
-    idleLimits,
     tabLimits,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
@@ -125,7 +113,6 @@ async function getSettings() {
     breakAfterLimits: {},
     breakDurationLimits: {},
     waitLimits: {},
-    idleLimits: {},
     tabLimits: {},
   });
   return {
@@ -152,7 +139,6 @@ async function getSettings() {
     breakAfterLimits: normalizeBreakLimits(breakAfterLimits),
     breakDurationLimits: normalizeBreakLimits(breakDurationLimits),
     waitLimits: normalizeWaitLimits(waitLimits),
-    idleLimits: normalizeIdleLimits(idleLimits),
     tabLimits: normalizeTabLimits(tabLimits),
   };
 }
@@ -510,12 +496,6 @@ async function resetCooldownStateForKey(key) {
   await setCooldownUntilForKey(key, 0);
 }
 
-function getIdleLimitMs(settings, key) {
-  const limitSeconds = Number.parseFloat(settings.idleLimits?.[key]);
-  if (!Number.isFinite(limitSeconds) || limitSeconds <= 0) return null;
-  return limitSeconds * 1000;
-}
-
 async function setActiveFromTab(tab) {
   if (!tab || !tab.id || !tab.url) {
     activeTabId = null;
@@ -566,15 +546,10 @@ async function flushActiveTime() {
   if (!activeKey || !lastTickMs) return;
   const now = Date.now();
   const settings = await getSettings();
-  const limitMs = getIdleLimitMs(settings, activeKey);
   const lastActivity = lastActivityByTabId.get(activeTabId);
   let delta = now - lastTickMs;
-  if (
-    Number.isFinite(limitMs) &&
-    limitMs > 0 &&
-    Number.isFinite(lastActivity)
-  ) {
-    const idleStartedAt = lastActivity + limitMs;
+  if (Number.isFinite(lastActivity)) {
+    const idleStartedAt = lastActivity + IDLE_CURSOR_PAUSE_MS;
     if (now >= idleStartedAt) {
       if (idleStartedAt <= lastTickMs) {
         lastTickMs = now;
@@ -609,11 +584,30 @@ async function flushActiveTime() {
   if (hasBreakConfig) {
     const cycleMs = await addCycleTimeForKey(activeKey, delta);
     const thresholdMs = breakAfterMinutes * 60000;
+    if (cycleMs < thresholdMs - BREAK_WARNING_WINDOW_MS) {
+      breakWarningSent.delete(activeKey);
+    } else {
+      const remainingMs = thresholdMs - cycleMs;
+      if (
+        remainingMs > 0 &&
+        remainingMs <= BREAK_WARNING_WINDOW_MS &&
+        !breakWarningSent.has(activeKey)
+      ) {
+        if (Number.isInteger(activeTabId)) {
+          sendMessageToTab(activeTabId, {
+            type: "BREAK_WARNING",
+            remainingMs,
+          });
+        }
+        breakWarningSent.add(activeKey);
+      }
+    }
     if (cycleMs >= thresholdMs) {
       const blockedUntil = now + breakDurationMinutes * 60000;
       await setCooldownUntilForKey(activeKey, blockedUntil);
       await setCycleTimeForKey(activeKey, 0);
       await setCycleUpdatedForKey(activeKey, now);
+      breakWarningSent.delete(activeKey);
     }
   }
 
@@ -621,11 +615,10 @@ async function flushActiveTime() {
 }
 
 function canTrackTime() {
-  if (idleState === "active") return true;
   if (!activeTabId) return false;
   const lastActivity = lastActivityByTabId.get(activeTabId);
   if (!Number.isFinite(lastActivity)) return false;
-  return Date.now() - lastActivity <= IDLE_ACTIVITY_GRACE_MS;
+  return Date.now() - lastActivity <= IDLE_CURSOR_PAUSE_MS;
 }
 
 async function updateBadge(key) {
@@ -756,29 +749,6 @@ async function updateOverlay(tabId, forceHide = false) {
   await updateBlockState(tabId, match.key);
 }
 
-chrome.idle.setDetectionInterval(15);
-
-chrome.idle.queryState(15, (state) => {
-  idleState = state;
-  if (state !== "active" && !canTrackTime()) {
-    lastTickMs = null;
-  }
-});
-
-chrome.idle.onStateChanged.addListener(async (state) => {
-  if (idleState === state) return;
-  idleState = state;
-  if (state === "active") {
-    if (activeKey) {
-      lastTickMs = Date.now();
-    }
-    return;
-  }
-  if (canTrackTime()) return;
-  await flushActiveTime();
-  lastTickMs = null;
-});
-
 setInterval(async () => {
   if (!activeTabId || !activeKey || !lastTickMs) return;
   if (!canTrackTime()) return;
@@ -898,7 +868,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
       const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
       const waitLimits = normalizeWaitLimits(msg.waitLimits);
-      const idleLimits = normalizeIdleLimits(msg.idleLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
       const tabLimitKeys = new Set([
         ...Object.keys(existingSettings.tabLimits || {}),
@@ -941,10 +910,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           (waitLimits[key] ?? null)) {
           return true;
         }
-        if ((existingSettings.idleLimits?.[key] ?? null) !==
-          (idleLimits[key] ?? null)) {
-          return true;
-        }
         if ((existingSettings.tabLimits?.[key] ?? null) !==
           (tabLimits[key] ?? null)) {
           return true;
@@ -974,7 +939,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         breakAfterLimits,
         breakDurationLimits,
         waitLimits,
-        idleLimits,
         tabLimits,
       });
       await refreshAllowlistForTabLimitKeys(changedTabLimitKeys, {
@@ -1026,6 +990,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         [cooldownKey]: {},
         [cycleUpdatedKey]: {},
       });
+      breakWarningSent.clear();
 
       lastTickMs = Date.now();
       await updateBadge(activeKey);

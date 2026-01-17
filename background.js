@@ -153,6 +153,25 @@ function normalizePath(pathname) {
   return trimmed === "/" ? "" : trimmed;
 }
 
+function extractSuspendedTargetUrl(url) {
+  if (!url || url.protocol !== "chrome-extension:") return null;
+  const filename = url.pathname.split("/").pop();
+  if (filename !== "suspended.html") return null;
+  const rawHash = url.hash ? url.hash.slice(1) : "";
+  const params = new URLSearchParams(rawHash);
+  const target =
+    params.get("uri") ||
+    params.get("url") ||
+    params.get("target") ||
+    params.get("tabUrl");
+  if (!target) return null;
+  try {
+    return new URL(target);
+  } catch {
+    return null;
+  }
+}
+
 function parseTrackedEntry(entry) {
   const raw = entry?.trim();
   if (!raw) return null;
@@ -183,6 +202,11 @@ function buildSiteKeyMap(entries = []) {
 }
 
 function getMatchForUrl(url, list) {
+  const suspendedTarget = extractSuspendedTargetUrl(url);
+  if (suspendedTarget) {
+    if (suspendedTarget.href === url.href) return null;
+    return getMatchForUrl(suspendedTarget, list);
+  }
   const host = normalizeHost(url.hostname);
   const path = normalizePath(url.pathname);
   let bestMatch = null;

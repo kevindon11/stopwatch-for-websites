@@ -5,6 +5,7 @@ let activeKey = null;
 let lastTickMs = null;
 let activeWindowId = null;
 let popupOpen = false;
+let isScreenLocked = false;
 const newTabIds = new Set();
 const lastActivityByTabId = new Map();
 const TAB_LIMIT_ALLOWLIST_KEY = "tabLimitAllowlist";
@@ -640,6 +641,7 @@ async function flushActiveTime() {
 
 function canTrackTime() {
   if (!activeTabId) return false;
+  if (isScreenLocked) return false;
   const lastActivity = lastActivityByTabId.get(activeTabId);
   if (!Number.isFinite(lastActivity)) return false;
   return Date.now() - lastActivity <= IDLE_CURSOR_PAUSE_MS;
@@ -799,6 +801,19 @@ setInterval(async () => {
   sendMessageToTab(activeTabId, { type: "OVERLAY_TICK" });
   await updateBlockState(activeTabId, activeKey);
 }, 1000);
+
+chrome.idle?.setDetectionInterval?.(15);
+chrome.idle?.onStateChanged?.addListener(async (state) => {
+  if (state === "locked") {
+    isScreenLocked = true;
+    await flushActiveTime();
+    lastTickMs = null;
+    return;
+  }
+  if (state === "active") {
+    isScreenLocked = false;
+  }
+});
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   await flushActiveTime();

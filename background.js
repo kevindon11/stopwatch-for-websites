@@ -10,7 +10,7 @@ const newTabIds = new Set();
 const lastActivityByTabId = new Map();
 const TAB_LIMIT_ALLOWLIST_KEY = "tabLimitAllowlist";
 const IDLE_CURSOR_PAUSE_MS = 60000;
-const BREAK_WARNING_WINDOW_MS = 30000;
+const BREAK_WARNING_WINDOW_MS = 10000;
 const breakWarningSent = new Set();
 
 function todayKey(date = new Date()) {

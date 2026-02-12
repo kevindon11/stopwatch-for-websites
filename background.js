@@ -12,7 +12,6 @@ const TAB_LIMIT_ALLOWLIST_KEY = "tabLimitAllowlist";
 const IDLE_CURSOR_PAUSE_MS = 60000;
 const BREAK_WARNING_WINDOW_MS = 10000;
 const breakWarningSent = new Set();
-const entryDelayByTabId = new Map();
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -77,18 +76,6 @@ function normalizeWaitLimits(raw) {
   return limits;
 }
 
-function normalizeEntryDelayLimits(raw) {
-  const limits = {};
-  if (!raw || typeof raw !== "object") return limits;
-  Object.entries(raw).forEach(([key, value]) => {
-    const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      limits[key] = parsed;
-    }
-  });
-  return limits;
-}
-
 function normalizeTabLimits(raw) {
   const limits = {};
   if (!raw || typeof raw !== "object") return limits;
@@ -114,7 +101,6 @@ async function getSettings() {
     breakAfterLimits,
     breakDurationLimits,
     waitLimits,
-    entryDelayLimits,
     tabLimits,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
@@ -128,7 +114,6 @@ async function getSettings() {
     breakAfterLimits: {},
     breakDurationLimits: {},
     waitLimits: {},
-    entryDelayLimits: {},
     tabLimits: {},
   });
   return {
@@ -155,7 +140,6 @@ async function getSettings() {
     breakAfterLimits: normalizeBreakLimits(breakAfterLimits),
     breakDurationLimits: normalizeBreakLimits(breakDurationLimits),
     waitLimits: normalizeWaitLimits(waitLimits),
-    entryDelayLimits: normalizeEntryDelayLimits(entryDelayLimits),
     tabLimits: normalizeTabLimits(tabLimits),
   };
 }
@@ -680,24 +664,6 @@ function sendMessageToTab(tabId, message) {
   chrome.tabs.sendMessage(tabId, message).catch(() => {});
 }
 
-function getEntryDelayBlockedUntil(tabId, key, entryDelayMinutes) {
-  if (!Number.isInteger(tabId)) return 0;
-  if (!Number.isFinite(entryDelayMinutes) || entryDelayMinutes <= 0) return 0;
-
-  const now = Date.now();
-  const existing = entryDelayByTabId.get(tabId);
-  if (existing && existing.key === key) {
-    if (existing.blockedUntil > now) {
-      return existing.blockedUntil;
-    }
-    return 0;
-  }
-
-  const blockedUntil = now + entryDelayMinutes * 60000;
-  entryDelayByTabId.set(tabId, { key, blockedUntil });
-  return blockedUntil;
-}
-
 async function updateBlockState(tabId, key) {
   if (!Number.isInteger(tabId)) return;
   if (!key) {
@@ -705,7 +671,7 @@ async function updateBlockState(tabId, key) {
     return;
   }
   const settings = await getSettings();
-  const { timeLimits, breakAfterLimits, breakDurationLimits, entryDelayLimits } = settings;
+  const { timeLimits, breakAfterLimits, breakDurationLimits } = settings;
   const limitMinutes = Number.parseFloat(timeLimits?.[key]);
   if (!Number.isFinite(limitMinutes) || limitMinutes <= 0) {
     // continue to break check
@@ -741,21 +707,6 @@ async function updateBlockState(tabId, key) {
         blockedUntil,
         breakAfterMinutes,
         breakDurationMinutes,
-      });
-      return;
-    }
-  }
-
-  const entryDelayMinutes = Number.parseFloat(entryDelayLimits?.[key]);
-  if (Number.isFinite(entryDelayMinutes) && entryDelayMinutes > 0) {
-    const blockedUntil = getEntryDelayBlockedUntil(tabId, key, entryDelayMinutes);
-    if (Number.isFinite(blockedUntil) && blockedUntil > Date.now()) {
-      sendMessageToTab(tabId, {
-        type: "BLOCK_SHOW",
-        key,
-        reason: "entryDelay",
-        blockedUntil,
-        entryDelayMinutes,
       });
       return;
     }
@@ -956,7 +907,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
       const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
       const waitLimits = normalizeWaitLimits(msg.waitLimits);
-      const entryDelayLimits = normalizeEntryDelayLimits(msg.entryDelayLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
       const tabLimitKeys = new Set([
         ...Object.keys(existingSettings.tabLimits || {}),
@@ -999,10 +949,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           (waitLimits[key] ?? null)) {
           return true;
         }
-        if ((existingSettings.entryDelayLimits?.[key] ?? null) !==
-          (entryDelayLimits[key] ?? null)) {
-          return true;
-        }
         if ((existingSettings.tabLimits?.[key] ?? null) !==
           (tabLimits[key] ?? null)) {
           return true;
@@ -1032,7 +978,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         breakAfterLimits,
         breakDurationLimits,
         waitLimits,
-        entryDelayLimits,
         tabLimits,
       });
       await refreshAllowlistForTabLimitKeys(changedTabLimitKeys, {
@@ -1057,11 +1002,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       for (const key of Object.keys(nextLocks)) {
         if (!nextSites.has(key)) {
           delete nextLocks[key];
-        }
-      }
-      for (const [tabId, entryDelayState] of entryDelayByTabId.entries()) {
-        if (!nextSites.has(entryDelayState.key)) {
-          entryDelayByTabId.delete(tabId);
         }
       }
       await setEditLocks(nextLocks);
@@ -1222,7 +1162,6 @@ chrome.tabs.onCreated.addListener((tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   lastActivityByTabId.delete(tabId);
-  entryDelayByTabId.delete(tabId);
   void (async () => {
     const allowlist = await getTabLimitAllowlist();
     let changed = false;

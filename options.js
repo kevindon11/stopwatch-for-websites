@@ -88,13 +88,6 @@ function createRow(entry = {}) {
   breakDurationInput.placeholder = "—";
   breakDurationInput.value = entry.breakDuration || "";
 
-  const entryDelayInput = document.createElement("input");
-  entryDelayInput.type = "number";
-  entryDelayInput.min = "1";
-  entryDelayInput.step = "1";
-  entryDelayInput.placeholder = "—";
-  entryDelayInput.value = entry.entryDelay || "";
-
   const waitLimitInput = document.createElement("input");
   waitLimitInput.type = "number";
   waitLimitInput.min = "1";
@@ -123,7 +116,6 @@ function createRow(entry = {}) {
   row.appendChild(timeInput);
   row.appendChild(breakAfterInput);
   row.appendChild(breakDurationInput);
-  row.appendChild(entryDelayInput);
   row.appendChild(waitLimitInput);
   row.appendChild(tabInput);
   row.appendChild(actionCell);
@@ -228,7 +220,6 @@ async function loadOptions() {
   const breakAfterLimits = cachedSettings.breakAfterLimits || {};
   const breakDurationLimits = cachedSettings.breakDurationLimits || {};
   const waitLimits = cachedSettings.waitLimits || {};
-  const entryDelayLimits = cachedSettings.entryDelayLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
   limitsList.innerHTML = "";
 
@@ -246,7 +237,6 @@ async function loadOptions() {
       timeLimit: timeLimits[key] ?? "",
       breakAfter: breakAfterLimits[key] ?? "",
       breakDuration: breakDurationLimits[key] ?? "",
-      entryDelay: entryDelayLimits[key] ?? "",
       waitLimit,
       tabLimit: tabLimits[key] ?? "",
     });
@@ -296,7 +286,6 @@ async function saveOptions(event) {
   const timeLimits = {};
   const breakAfterLimits = {};
   const breakDurationLimits = {};
-  const entryDelayLimits = {};
   const waitLimits = {};
   const tabLimits = {};
 
@@ -306,7 +295,6 @@ async function saveOptions(event) {
       timeInput,
       breakAfterInput,
       breakDurationInput,
-      entryDelayInput,
       waitLimitInput,
       tabInput,
     ] = row.querySelectorAll("input");
@@ -330,10 +318,6 @@ async function saveOptions(event) {
     if (breakDuration != null) {
       breakDurationLimits[key] = breakDuration;
     }
-    const entryDelay = parseLimit(entryDelayInput.value);
-    if (entryDelay != null) {
-      entryDelayLimits[key] = entryDelay;
-    }
     const waitLimit = parseLimit(waitLimitInput.value);
     if (waitLimit != null) {
       waitLimits[key] = waitLimit;
@@ -350,7 +334,6 @@ async function saveOptions(event) {
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
-    entryDelayLimits,
     waitLimits,
     tabLimits,
     overlayEnabled: cachedSettings?.overlayEnabled,

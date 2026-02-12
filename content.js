@@ -18,6 +18,7 @@ let blockState = {
   blockedUntil: 0,
   breakAfterMinutes: null,
   breakDurationMinutes: null,
+  entryDelayMinutes: null,
 };
 let overlayTheme = {
   backgroundColor: "#0f172a",
@@ -423,6 +424,16 @@ function updateBlockDetails() {
     return;
   }
 
+  if (blockState.reason === "entryDelay") {
+    title.textContent = "Please wait";
+    const remainingMs = (blockState.blockedUntil || 0) - Date.now();
+    const durationText = blockState.entryDelayMinutes
+      ? `${blockState.entryDelayMinutes}m`
+      : "a few minutes";
+    details.textContent = `Entry delay: ${durationText} · Back in ${fmtRemaining(remainingMs)}`;
+    return;
+  }
+
   title.textContent = "Daily limit reached";
   const limitText = blockState.limitMinutes
     ? `${blockState.limitMinutes}m`
@@ -593,13 +604,18 @@ chrome.runtime.onMessage.addListener((msg) => {
       key: msg.key || null,
       limitMinutes: Number.isFinite(msg.limitMinutes) ? msg.limitMinutes : null,
       totalMs: Number.isFinite(msg.totalMs) ? msg.totalMs : 0,
-      reason: msg.reason === "cooldown" ? "cooldown" : "daily",
+      reason: ["cooldown", "entryDelay"].includes(msg.reason)
+        ? msg.reason
+        : "daily",
       blockedUntil: Number.isFinite(msg.blockedUntil) ? msg.blockedUntil : 0,
       breakAfterMinutes: Number.isFinite(msg.breakAfterMinutes)
         ? msg.breakAfterMinutes
         : null,
       breakDurationMinutes: Number.isFinite(msg.breakDurationMinutes)
         ? msg.breakDurationMinutes
+        : null,
+      entryDelayMinutes: Number.isFinite(msg.entryDelayMinutes)
+        ? msg.entryDelayMinutes
         : null,
     };
     setBlockVisible(true);

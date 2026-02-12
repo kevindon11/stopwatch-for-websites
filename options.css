@@ -27,7 +27,7 @@ h1 {
   display: grid;
   grid-template-columns:
     minmax(160px, 1.2fr)
-    repeat(4, minmax(120px, 1fr))
+    repeat(5, minmax(120px, 1fr))
     minmax(90px, 0.8fr)
     auto;
   gap: 10px;
@@ -48,7 +48,7 @@ h1 {
   display: grid;
   grid-template-columns:
     minmax(160px, 1.2fr)
-    repeat(4, minmax(120px, 1fr))
+    repeat(5, minmax(120px, 1fr))
     minmax(90px, 0.8fr)
     auto;
   gap: 10px;
@@ -77,7 +77,7 @@ h1 {
 
 .limits-header,
 .limit-row {
-  min-width: 860px;
+  min-width: 980px;
 }
 
 .action-cell {

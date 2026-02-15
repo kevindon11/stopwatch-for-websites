@@ -612,6 +612,23 @@ async function flushActiveTime() {
     breakAfterMinutes > 0 &&
     Number.isFinite(breakDurationMinutes) &&
     breakDurationMinutes > 0;
+  const entryDelayMinutes = Number.parseFloat(
+    settings.entryDelayLimits?.[activeKey],
+  );
+
+  if (Number.isFinite(entryDelayMinutes) && entryDelayMinutes > 0) {
+    const entryDelayBlockedUntil = getEntryDelayBlockedUntil(
+      activeTabId,
+      activeKey,
+      entryDelayMinutes,
+    );
+    if (
+      Number.isFinite(entryDelayBlockedUntil) &&
+      entryDelayBlockedUntil > now
+    ) {
+      return;
+    }
+  }
 
   if (hasBreakConfig) {
     const blockedUntil = await getCooldownUntilForKey(activeKey);

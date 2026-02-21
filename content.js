@@ -256,6 +256,8 @@ function ensureOverlay() {
     const rect = overlayEl.getBoundingClientRect();
     overlayEl.style.left = `${rect.left}px`;
     overlayEl.style.top = `${rect.top}px`;
+    overlayEl.style.right = "auto";
+    overlayEl.style.bottom = "auto";
     dragState = {
       startX: event.clientX,
       startY: event.clientY,

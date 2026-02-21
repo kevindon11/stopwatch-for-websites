@@ -13,6 +13,7 @@ const IDLE_CURSOR_PAUSE_MS = 60000;
 const BREAK_WARNING_WINDOW_MS = 10000;
 const breakWarningSent = new Set();
 const entryDelayByTabId = new Map();
+const OVERLAY_POSITION_KEY = "overlayPositions";
 
 function todayKey(date = new Date()) {
   const year = date.getFullYear();
@@ -46,7 +47,7 @@ function normalizeTimeLimits(raw) {
   if (!raw || typeof raw !== "object") return limits;
   Object.entries(raw).forEach(([key, value]) => {
     const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (Number.isFinite(parsed) && parsed >= 0) {
       limits[key] = parsed;
     }
   });
@@ -116,6 +117,7 @@ async function getSettings() {
     waitLimits,
     entryDelayLimits,
     tabLimits,
+    rememberOverlayPosition,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
     overlayEnabled: true,
@@ -130,6 +132,7 @@ async function getSettings() {
     waitLimits: {},
     entryDelayLimits: {},
     tabLimits: {},
+    rememberOverlayPosition: false,
   });
   return {
     trackedSites,
@@ -157,6 +160,7 @@ async function getSettings() {
     waitLimits: normalizeWaitLimits(waitLimits),
     entryDelayLimits: normalizeEntryDelayLimits(entryDelayLimits),
     tabLimits: normalizeTabLimits(tabLimits),
+    rememberOverlayPosition: !!rememberOverlayPosition,
   };
 }
 
@@ -289,6 +293,31 @@ async function getTabLimitAllowlist() {
 async function setTabLimitAllowlist(allowlist) {
   await chrome.storage.local.set({
     [TAB_LIMIT_ALLOWLIST_KEY]: allowlist,
+  });
+}
+
+
+function normalizeOverlayPositions(raw) {
+  const positions = {};
+  if (!raw || typeof raw !== "object") return positions;
+  Object.entries(raw).forEach(([key, value]) => {
+    const left = Number.parseFloat(value?.left);
+    const top = Number.parseFloat(value?.top);
+    if (Number.isFinite(left) && Number.isFinite(top)) {
+      positions[key] = { left, top };
+    }
+  });
+  return positions;
+}
+
+async function getOverlayPositions() {
+  const data = await chrome.storage.local.get({ [OVERLAY_POSITION_KEY]: {} });
+  return normalizeOverlayPositions(data[OVERLAY_POSITION_KEY]);
+}
+
+async function setOverlayPositions(positions) {
+  await chrome.storage.local.set({
+    [OVERLAY_POSITION_KEY]: normalizeOverlayPositions(positions),
   });
 }
 
@@ -724,7 +753,7 @@ async function updateBlockState(tabId, key) {
   const settings = await getSettings();
   const { timeLimits, breakAfterLimits, breakDurationLimits, entryDelayLimits } = settings;
   const limitMinutes = Number.parseFloat(timeLimits?.[key]);
-  if (!Number.isFinite(limitMinutes) || limitMinutes <= 0) {
+  if (!Number.isFinite(limitMinutes) || limitMinutes < 0) {
     // continue to break check
   } else {
     const totalMs = await getTodayTotalForKey(key);
@@ -791,6 +820,7 @@ async function updateOverlay(tabId, forceHide = false) {
     overlayBackgroundOpacity,
     timeLimits,
     tabLimits,
+    rememberOverlayPosition,
   } = await getSettings();
 
   if (!overlayEnabled || forceHide) {
@@ -826,6 +856,12 @@ async function updateOverlay(tabId, forceHide = false) {
     tabCount = matching.length;
   }
 
+  let position = null;
+  if (rememberOverlayPosition) {
+    const positions = await getOverlayPositions();
+    position = positions[match.key] || null;
+  }
+
   sendMessageToTab(tabId, {
     type: "OVERLAY_SHOW",
     key: match.key,
@@ -837,6 +873,8 @@ async function updateOverlay(tabId, forceHide = false) {
     limitMinutes: timeLimits?.[match.key],
     tabCount,
     tabLimit: Number.isFinite(tabLimit) && tabLimit > 0 ? tabLimit : null,
+    rememberPosition: rememberOverlayPosition,
+    position,
   });
   await updateBlockState(tabId, match.key);
 }
@@ -975,6 +1013,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const waitLimits = normalizeWaitLimits(msg.waitLimits);
       const entryDelayLimits = normalizeEntryDelayLimits(msg.entryDelayLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
+      const rememberOverlayPosition = msg.rememberOverlayPosition == null
+        ? !!existingSettings.rememberOverlayPosition
+        : !!msg.rememberOverlayPosition;
       const tabLimitKeys = new Set([
         ...Object.keys(existingSettings.tabLimits || {}),
         ...Object.keys(tabLimits || {}),
@@ -1051,6 +1092,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         waitLimits,
         entryDelayLimits,
         tabLimits,
+        rememberOverlayPosition,
       });
       await refreshAllowlistForTabLimitKeys(changedTabLimitKeys, {
         trackedSites,
@@ -1090,6 +1132,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (tab?.id) await updateBlockState(tab.id, activeKey);
       await sendTabStatusForAll();
 
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "SAVE_OVERLAY_POSITION") {
+      const key = typeof msg.key === "string" ? msg.key : "";
+      const left = Number.parseFloat(msg.left);
+      const top = Number.parseFloat(msg.top);
+      if (!key || !Number.isFinite(left) || !Number.isFinite(top)) {
+        sendResponse({ ok: false });
+        return;
+      }
+      const positions = await getOverlayPositions();
+      positions[key] = { left, top };
+      await setOverlayPositions(positions);
       sendResponse({ ok: true });
       return;
     }

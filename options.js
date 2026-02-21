@@ -3,6 +3,9 @@ const addButton = document.getElementById("add-site");
 const status = document.getElementById("status");
 const resetButton = document.getElementById("reset-today");
 const resetCountdown = document.getElementById("reset-countdown");
+const rememberOverlayPosition = document.getElementById(
+  "remember-overlay-position",
+);
 
 let cachedSettings = null;
 let cachedLocks = {};
@@ -38,15 +41,22 @@ function normalizeTrackedEntry(entry) {
   return `${host}${path}`;
 }
 
-function parseLimit(value) {
+function parsePositiveLimit(value) {
   if (value === "" || value == null) return null;
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return parsed;
 }
 
+function parseDailyLimit(value) {
+  if (value === "" || value == null) return null;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
 function parseTabLimit(value) {
-  const parsed = parseLimit(value);
+  const parsed = parsePositiveLimit(value);
   return parsed == null ? null : Math.floor(parsed);
 }
 
@@ -62,44 +72,44 @@ function createRow(entry = {}) {
 
   const timeInput = document.createElement("input");
   timeInput.type = "number";
-  timeInput.min = "1";
+  timeInput.min = "0";
   timeInput.step = "1";
-  timeInput.placeholder = "—";
+  timeInput.placeholder = "";
   timeInput.value = entry.timeLimit || "";
 
   const tabInput = document.createElement("input");
   tabInput.type = "number";
   tabInput.min = "1";
   tabInput.step = "1";
-  tabInput.placeholder = "—";
+  tabInput.placeholder = "";
   tabInput.value = entry.tabLimit || "";
 
   const breakAfterInput = document.createElement("input");
   breakAfterInput.type = "number";
   breakAfterInput.min = "1";
   breakAfterInput.step = "1";
-  breakAfterInput.placeholder = "—";
+  breakAfterInput.placeholder = "";
   breakAfterInput.value = entry.breakAfter || "";
 
   const breakDurationInput = document.createElement("input");
   breakDurationInput.type = "number";
   breakDurationInput.min = "1";
   breakDurationInput.step = "1";
-  breakDurationInput.placeholder = "—";
+  breakDurationInput.placeholder = "";
   breakDurationInput.value = entry.breakDuration || "";
 
   const entryDelayInput = document.createElement("input");
   entryDelayInput.type = "number";
   entryDelayInput.min = "1";
   entryDelayInput.step = "1";
-  entryDelayInput.placeholder = "—";
+  entryDelayInput.placeholder = "";
   entryDelayInput.value = entry.entryDelay || "";
 
   const waitLimitInput = document.createElement("input");
   waitLimitInput.type = "number";
   waitLimitInput.min = "1";
   waitLimitInput.step = "1";
-  waitLimitInput.placeholder = "—";
+  waitLimitInput.placeholder = "";
   waitLimitInput.value = entry.waitLimit || "";
 
   const actionCell = document.createElement("div");
@@ -230,6 +240,9 @@ async function loadOptions() {
   const waitLimits = cachedSettings.waitLimits || {};
   const entryDelayLimits = cachedSettings.entryDelayLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
+  if (rememberOverlayPosition) {
+    rememberOverlayPosition.checked = !!cachedSettings.rememberOverlayPosition;
+  }
   limitsList.innerHTML = "";
 
   if (!trackedSites.length) {
@@ -318,23 +331,23 @@ async function saveOptions(event) {
     }
 
     trackedSites.push(siteRaw);
-    const timeLimit = parseLimit(timeInput.value);
+    const timeLimit = parseDailyLimit(timeInput.value);
     if (timeLimit != null) {
       timeLimits[key] = timeLimit;
     }
-    const breakAfter = parseLimit(breakAfterInput.value);
+    const breakAfter = parsePositiveLimit(breakAfterInput.value);
     if (breakAfter != null) {
       breakAfterLimits[key] = breakAfter;
     }
-    const breakDuration = parseLimit(breakDurationInput.value);
+    const breakDuration = parsePositiveLimit(breakDurationInput.value);
     if (breakDuration != null) {
       breakDurationLimits[key] = breakDuration;
     }
-    const entryDelay = parseLimit(entryDelayInput.value);
+    const entryDelay = parsePositiveLimit(entryDelayInput.value);
     if (entryDelay != null) {
       entryDelayLimits[key] = entryDelay;
     }
-    const waitLimit = parseLimit(waitLimitInput.value);
+    const waitLimit = parsePositiveLimit(waitLimitInput.value);
     if (waitLimit != null) {
       waitLimits[key] = waitLimit;
     }
@@ -359,6 +372,7 @@ async function saveOptions(event) {
     overlayTextColor: cachedSettings?.overlayTextColor,
     overlayBackgroundOpacity: cachedSettings?.overlayBackgroundOpacity,
     menuTextScale: cachedSettings?.menuTextScale,
+    rememberOverlayPosition: rememberOverlayPosition?.checked,
   });
 
   if (!response?.ok) {

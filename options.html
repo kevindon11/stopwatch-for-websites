@@ -14,6 +14,11 @@
       </p>
 
       <form id="options-form">
+        <label class="checkbox-row" for="remember-overlay-position">
+          <input type="checkbox" id="remember-overlay-position" />
+          Remember timer position per site
+        </label>
+
         <div class="limits-table">
           <div class="limits-header">
             <div>Site</div>
@@ -27,6 +32,19 @@
           </div>
           <div id="limits-list" class="limits-list"></div>
         </div>
+
+        <section class="legend" aria-label="Column guide">
+          <h2>Column guide</h2>
+          <ul>
+            <li><strong>Site:</strong> Domain or domain/path to track.</li>
+            <li><strong>Daily limit (min):</strong> Max minutes per day. Leave empty for no limit; set <code>0</code> to block immediately.</li>
+            <li><strong>Break after (min):</strong> Minutes of use before a break starts. Leave empty to disable.</li>
+            <li><strong>Block for (min):</strong> Length of each forced break. Leave empty to disable.</li>
+            <li><strong>Entry wait (min):</strong> Delay after opening before site becomes usable. Leave empty to disable.</li>
+            <li><strong>Edit wait (min):</strong> Lock time after edits so values cannot be changed. Leave empty to disable.</li>
+            <li><strong>Tabs:</strong> Maximum open tabs for this site. Leave empty for no tab limit.</li>
+          </ul>
+        </section>
 
         <div class="actions">
           <button type="button" id="add-site">Add site</button>

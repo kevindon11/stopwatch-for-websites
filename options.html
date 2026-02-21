@@ -16,13 +16,34 @@
       <form id="options-form">
         <div class="limits-table">
           <div class="limits-header">
-            <div>Site</div>
-            <div>Daily limit (min)</div>
-            <div>Break after (min)</div>
-            <div>Block for (min)</div>
-            <div>Entry wait (min)</div>
-            <div>Edit wait (min)</div>
-            <div>Tabs</div>
+            <div class="head-cell">
+              <span>Site</span>
+              <span class="col-help">Domain or specific path to track.</span>
+            </div>
+            <div class="head-cell">
+              <span>Tabs</span>
+              <span class="col-help">Empty = no tab limit.</span>
+            </div>
+            <div class="head-cell">
+              <span>Daily limit (min)</span>
+              <span class="col-help">Empty = never block. 0 = block instantly.</span>
+            </div>
+            <div class="head-cell">
+              <span>Break after (min)</span>
+              <span class="col-help">Empty = disabled.</span>
+            </div>
+            <div class="head-cell">
+              <span>Block for (min)</span>
+              <span class="col-help">Empty = disabled.</span>
+            </div>
+            <div class="head-cell">
+              <span>Entry wait (min)</span>
+              <span class="col-help">Empty = no entry delay.</span>
+            </div>
+            <div class="head-cell">
+              <span>Edit wait (min)</span>
+              <span class="col-help">Empty = editable anytime.</span>
+            </div>
             <div></div>
           </div>
           <div id="limits-list" class="limits-list"></div>

@@ -28,6 +28,7 @@ let overlayTheme = {
 };
 let clickThroughOverride = false;
 let overlayInteractionEnabled = false;
+let overlayRememberPosition = false;
 let hoverTimer = null;
 
 const HOVER_REVEAL_DELAY_MS = 1500;
@@ -148,13 +149,13 @@ function fmtMinutesSeconds(ms) {
 }
 
 function fmtLimitMinutes(limit) {
-  if (!Number.isFinite(limit) || limit <= 0) return null;
+  if (!Number.isFinite(limit) || limit < 0) return null;
   const isWhole = Number.isInteger(limit);
   return `${isWhole ? limit : limit.toFixed(1)}m`;
 }
 
 function formatTabStatus(count, limit) {
-  if (!Number.isFinite(limit) || limit <= 0) return null;
+  if (!Number.isFinite(limit) || limit < 0) return null;
   const safeCount = Number.isFinite(count) ? count : 0;
   return `${safeCount}/${limit}`;
 }
@@ -280,6 +281,18 @@ function ensureOverlay() {
   document.addEventListener("mouseup", () => {
     if (!overlayEl || !dragState) return;
     overlayEl.style.cursor = "grab";
+    if (overlayRememberPosition && overlayKey) {
+      const left = Number.parseFloat(overlayEl.style.left);
+      const top = Number.parseFloat(overlayEl.style.top);
+      if (Number.isFinite(left) && Number.isFinite(top)) {
+        chrome.runtime.sendMessage({
+          type: "SAVE_OVERLAY_POSITION",
+          key: overlayKey,
+          left,
+          top,
+        }).catch(() => {});
+      }
+    }
     dragState = null;
   });
 
@@ -566,10 +579,25 @@ chrome.runtime.onMessage.addListener((msg) => {
         : 0.92,
       clickThrough: !!msg.clickThrough,
     };
+    overlayRememberPosition = !!msg.rememberPosition;
     clickThroughOverride = false;
     overlayInteractionEnabled = false;
     clearHoverTimer();
     ensureOverlay();
+    const position = msg.position;
+    const positionLeft = Number.parseFloat(position?.left);
+    const positionTop = Number.parseFloat(position?.top);
+    if (overlayRememberPosition && Number.isFinite(positionLeft) && Number.isFinite(positionTop)) {
+      overlayEl.style.left = `${positionLeft}px`;
+      overlayEl.style.top = `${positionTop}px`;
+      overlayEl.style.right = "auto";
+      overlayEl.style.bottom = "auto";
+    } else {
+      overlayEl.style.left = "auto";
+      overlayEl.style.top = "auto";
+      overlayEl.style.right = "16px";
+      overlayEl.style.bottom = "16px";
+    }
     applyOverlayScale(overlayScale);
     applyOverlayTheme(overlayTheme);
     applyClickThroughState();

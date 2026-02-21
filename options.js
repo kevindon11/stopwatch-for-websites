@@ -3,10 +3,6 @@ const addButton = document.getElementById("add-site");
 const status = document.getElementById("status");
 const resetButton = document.getElementById("reset-today");
 const resetCountdown = document.getElementById("reset-countdown");
-const rememberOverlayPosition = document.getElementById(
-  "remember-overlay-position",
-);
-
 let cachedSettings = null;
 let cachedLocks = {};
 let resetTimerId = null;
@@ -130,12 +126,12 @@ function createRow(entry = {}) {
   actionCell.appendChild(lockStatus);
 
   row.appendChild(siteInput);
+  row.appendChild(tabInput);
   row.appendChild(timeInput);
   row.appendChild(breakAfterInput);
   row.appendChild(breakDurationInput);
   row.appendChild(entryDelayInput);
   row.appendChild(waitLimitInput);
-  row.appendChild(tabInput);
   row.appendChild(actionCell);
   return row;
 }
@@ -240,9 +236,6 @@ async function loadOptions() {
   const waitLimits = cachedSettings.waitLimits || {};
   const entryDelayLimits = cachedSettings.entryDelayLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
-  if (rememberOverlayPosition) {
-    rememberOverlayPosition.checked = !!cachedSettings.rememberOverlayPosition;
-  }
   limitsList.innerHTML = "";
 
   if (!trackedSites.length) {
@@ -316,12 +309,12 @@ async function saveOptions(event) {
   for (const row of rows) {
     const [
       siteInput,
+      tabInput,
       timeInput,
       breakAfterInput,
       breakDurationInput,
       entryDelayInput,
       waitLimitInput,
-      tabInput,
     ] = row.querySelectorAll("input");
     const siteRaw = siteInput.value.trim();
     const key = normalizeTrackedEntry(siteRaw);
@@ -372,7 +365,6 @@ async function saveOptions(event) {
     overlayTextColor: cachedSettings?.overlayTextColor,
     overlayBackgroundOpacity: cachedSettings?.overlayBackgroundOpacity,
     menuTextScale: cachedSettings?.menuTextScale,
-    rememberOverlayPosition: rememberOverlayPosition?.checked,
   });
 
   if (!response?.ok) {

@@ -74,6 +74,7 @@ function parseOverlayScale(value, fallback) {
 let currentTrackedSites = [];
 let currentTimeLimits = {};
 let currentTabLimits = {};
+let activeSiteTracked = false;
 
 function applyMenuTextScale(scale) {
   const safeScale = Number.isFinite(scale) ? scale : 1;
@@ -128,9 +129,14 @@ function renderTimes(trackedSites, times, key) {
 
 function renderCurrentSiteTotal(data) {
   const currentSite = document.getElementById("currentSiteTotal");
+  const resetOverlayPositionButton = document.getElementById("resetOverlayPosition");
   if (!currentSite) return;
   currentSite.innerHTML = "";
-  if (!data?.tracked) {
+  activeSiteTracked = !!data?.tracked;
+  if (resetOverlayPositionButton) {
+    resetOverlayPositionButton.disabled = !activeSiteTracked;
+  }
+  if (!activeSiteTracked) {
     currentSite.innerHTML = `<span class="muted">Not tracked</span>`;
     return;
   }
@@ -209,7 +215,8 @@ async function load() {
     overlayOpacitySlider.value = String(clampedOpacity);
     overlayOpacityInput.value = String(overlayBackgroundOpacity);
   }
-  if (menuTextScaleSlider && menuTextScaleInput) {
+
+if (menuTextScaleSlider && menuTextScaleInput) {
     const clampedScale = clamp(
       menuTextScale,
       MENU_TEXT_SCALE_RANGE.min,
@@ -282,6 +289,21 @@ async function saveSettings() {
   }, 900);
 
   await load();
+}
+
+
+async function resetOverlayPosition() {
+  const response = await chrome.runtime.sendMessage({
+    type: "RESET_OVERLAY_POSITION",
+  });
+  if (!response?.ok) {
+    setStatus(response?.error || "Unable to reset timer position.");
+    return;
+  }
+  setStatus("Timer position reset");
+  setTimeout(() => {
+    setStatus("");
+  }, 1000);
 }
 
 function scheduleSave() {
@@ -387,6 +409,12 @@ if (overlayEnabled) {
   overlayEnabled.addEventListener("change", () => {
     scheduleSave();
   });
+}
+
+
+const resetOverlayPositionButton = document.getElementById("resetOverlayPosition");
+if (resetOverlayPositionButton) {
+  resetOverlayPositionButton.addEventListener("click", resetOverlayPosition);
 }
 
 if (menuTextScaleSlider && menuTextScaleInput) {

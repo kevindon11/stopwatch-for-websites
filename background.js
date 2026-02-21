@@ -132,7 +132,7 @@ async function getSettings() {
     waitLimits: {},
     entryDelayLimits: {},
     tabLimits: {},
-    rememberOverlayPosition: false,
+    rememberOverlayPosition: true,
   });
   return {
     trackedSites,
@@ -1013,9 +1013,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const waitLimits = normalizeWaitLimits(msg.waitLimits);
       const entryDelayLimits = normalizeEntryDelayLimits(msg.entryDelayLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
-      const rememberOverlayPosition = msg.rememberOverlayPosition == null
-        ? !!existingSettings.rememberOverlayPosition
-        : !!msg.rememberOverlayPosition;
+      const rememberOverlayPosition = true;
       const tabLimitKeys = new Set([
         ...Object.keys(existingSettings.tabLimits || {}),
         ...Object.keys(tabLimits || {}),
@@ -1147,6 +1145,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const positions = await getOverlayPositions();
       positions[key] = { left, top };
       await setOverlayPositions(positions);
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "RESET_OVERLAY_POSITION") {
+      const [tab] = await chrome.tabs
+        .query({ active: true, currentWindow: true })
+        .catch(() => []);
+      if (!tab?.url || !Number.isInteger(tab.id)) {
+        sendResponse({ ok: false, error: "No active tab." });
+        return;
+      }
+      let url;
+      try {
+        url = new URL(tab.url);
+      } catch {
+        sendResponse({ ok: false, error: "Unsupported URL." });
+        return;
+      }
+      const settings = await getSettings();
+      const match = getMatchForUrl(url, settings.trackedSites);
+      if (!match?.key) {
+        sendResponse({ ok: false, error: "Current site is not tracked." });
+        return;
+      }
+      const positions = await getOverlayPositions();
+      delete positions[match.key];
+      await setOverlayPositions(positions);
+      await updateOverlay(tab.id);
       sendResponse({ ok: true });
       return;
     }

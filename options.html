@@ -14,37 +14,40 @@
       </p>
 
       <form id="options-form">
-        <label class="checkbox-row" for="remember-overlay-position">
-          <input type="checkbox" id="remember-overlay-position" />
-          Remember timer position per site
-        </label>
-
         <div class="limits-table">
           <div class="limits-header">
-            <div>Site</div>
-            <div>Daily limit (min)</div>
-            <div>Break after (min)</div>
-            <div>Block for (min)</div>
-            <div>Entry wait (min)</div>
-            <div>Edit wait (min)</div>
-            <div>Tabs</div>
+            <div class="head-cell">
+              <span>Site</span>
+              <span class="col-help">Domain or specific path to track.</span>
+            </div>
+            <div class="head-cell">
+              <span>Tabs</span>
+              <span class="col-help">Empty = no tab limit.</span>
+            </div>
+            <div class="head-cell">
+              <span>Daily limit (min)</span>
+              <span class="col-help">Empty = never block. 0 = block instantly.</span>
+            </div>
+            <div class="head-cell">
+              <span>Break after (min)</span>
+              <span class="col-help">Empty = disabled.</span>
+            </div>
+            <div class="head-cell">
+              <span>Block for (min)</span>
+              <span class="col-help">Empty = disabled.</span>
+            </div>
+            <div class="head-cell">
+              <span>Entry wait (min)</span>
+              <span class="col-help">Empty = no entry delay.</span>
+            </div>
+            <div class="head-cell">
+              <span>Edit wait (min)</span>
+              <span class="col-help">Empty = editable anytime.</span>
+            </div>
             <div></div>
           </div>
           <div id="limits-list" class="limits-list"></div>
         </div>
-
-        <section class="legend" aria-label="Column guide">
-          <h2>Column guide</h2>
-          <ul>
-            <li><strong>Site:</strong> Domain or domain/path to track.</li>
-            <li><strong>Daily limit (min):</strong> Max minutes per day. Leave empty for no limit; set <code>0</code> to block immediately.</li>
-            <li><strong>Break after (min):</strong> Minutes of use before a break starts. Leave empty to disable.</li>
-            <li><strong>Block for (min):</strong> Length of each forced break. Leave empty to disable.</li>
-            <li><strong>Entry wait (min):</strong> Delay after opening before site becomes usable. Leave empty to disable.</li>
-            <li><strong>Edit wait (min):</strong> Lock time after edits so values cannot be changed. Leave empty to disable.</li>
-            <li><strong>Tabs:</strong> Maximum open tabs for this site. Leave empty for no tab limit.</li>
-          </ul>
-        </section>
 
         <div class="actions">
           <button type="button" id="add-site">Add site</button>

@@ -29,6 +29,9 @@ let overlayTheme = {
 let clickThroughOverride = false;
 let overlayInteractionEnabled = false;
 let hoverTimer = null;
+let overlayRememberPosition = false;
+
+const OVERLAY_POSITION_KEY = "overlayPositionsBySite";
 
 const HOVER_REVEAL_DELAY_MS = 1500;
 const ACTIVITY_THROTTLE_MS = 1000;
@@ -175,6 +178,57 @@ async function getTodayTimeForKey(key) {
   return res.times?.[key] || 0;
 }
 
+async function getSavedOverlayPosition(key) {
+  if (!key) return null;
+  try {
+    const data = await chrome.storage.local.get({ [OVERLAY_POSITION_KEY]: {} });
+    const position = data?.[OVERLAY_POSITION_KEY]?.[key];
+    if (!position || typeof position !== "object") return null;
+    if (!Number.isFinite(position.left) || !Number.isFinite(position.top)) {
+      return null;
+    }
+    return position;
+  } catch {
+    return null;
+  }
+}
+
+async function saveOverlayPosition(key, left, top) {
+  if (!key || !Number.isFinite(left) || !Number.isFinite(top)) return;
+  try {
+    const data = await chrome.storage.local.get({ [OVERLAY_POSITION_KEY]: {} });
+    const positions = data?.[OVERLAY_POSITION_KEY] || {};
+    positions[key] = { left, top };
+    await chrome.storage.local.set({ [OVERLAY_POSITION_KEY]: positions });
+  } catch {
+    // no-op
+  }
+}
+
+function applyDefaultOverlayPosition() {
+  if (!overlayEl) return;
+  overlayEl.style.left = "auto";
+  overlayEl.style.top = "auto";
+  overlayEl.style.right = "16px";
+  overlayEl.style.bottom = "16px";
+}
+
+async function applyRememberedOverlayPosition() {
+  if (!overlayEl || !overlayKey || !overlayRememberPosition) {
+    applyDefaultOverlayPosition();
+    return;
+  }
+  const saved = await getSavedOverlayPosition(overlayKey);
+  if (!saved) {
+    applyDefaultOverlayPosition();
+    return;
+  }
+  overlayEl.style.left = `${saved.left}px`;
+  overlayEl.style.top = `${saved.top}px`;
+  overlayEl.style.right = "auto";
+  overlayEl.style.bottom = "auto";
+}
+
 function ensureOverlay() {
   if (overlayEl) return overlayEl;
 
@@ -280,6 +334,10 @@ function ensureOverlay() {
   document.addEventListener("mouseup", () => {
     if (!overlayEl || !dragState) return;
     overlayEl.style.cursor = "grab";
+    if (overlayRememberPosition && overlayKey) {
+      const rect = overlayEl.getBoundingClientRect();
+      saveOverlayPosition(overlayKey, rect.left, rect.top);
+    }
     dragState = null;
   });
 
@@ -554,6 +612,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       : null;
     overlayTabCount = Number.isFinite(msg.tabCount) ? msg.tabCount : null;
     overlayTabLimit = Number.isFinite(msg.tabLimit) ? msg.tabLimit : null;
+    overlayRememberPosition = !!msg.rememberTimerPosition;
     overlayTheme = {
       backgroundColor:
         typeof msg.backgroundColor === "string"
@@ -570,6 +629,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     overlayInteractionEnabled = false;
     clearHoverTimer();
     ensureOverlay();
+    applyRememberedOverlayPosition();
     applyOverlayScale(overlayScale);
     applyOverlayTheme(overlayTheme);
     applyClickThroughState();

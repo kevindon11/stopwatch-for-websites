@@ -46,7 +46,7 @@ function normalizeTimeLimits(raw) {
   if (!raw || typeof raw !== "object") return limits;
   Object.entries(raw).forEach(([key, value]) => {
     const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (Number.isFinite(parsed) && parsed >= 0) {
       limits[key] = parsed;
     }
   });
@@ -116,6 +116,7 @@ async function getSettings() {
     waitLimits,
     entryDelayLimits,
     tabLimits,
+    rememberTimerPosition,
   } = await chrome.storage.sync.get({
     trackedSites: DEFAULT_SITES,
     overlayEnabled: true,
@@ -130,6 +131,7 @@ async function getSettings() {
     waitLimits: {},
     entryDelayLimits: {},
     tabLimits: {},
+    rememberTimerPosition: false,
   });
   return {
     trackedSites,
@@ -157,6 +159,7 @@ async function getSettings() {
     waitLimits: normalizeWaitLimits(waitLimits),
     entryDelayLimits: normalizeEntryDelayLimits(entryDelayLimits),
     tabLimits: normalizeTabLimits(tabLimits),
+    rememberTimerPosition: !!rememberTimerPosition,
   };
 }
 
@@ -724,9 +727,7 @@ async function updateBlockState(tabId, key) {
   const settings = await getSettings();
   const { timeLimits, breakAfterLimits, breakDurationLimits, entryDelayLimits } = settings;
   const limitMinutes = Number.parseFloat(timeLimits?.[key]);
-  if (!Number.isFinite(limitMinutes) || limitMinutes <= 0) {
-    // continue to break check
-  } else {
+  if (Number.isFinite(limitMinutes) && limitMinutes >= 0) {
     const totalMs = await getTodayTotalForKey(key);
     if (totalMs >= limitMinutes * 60000) {
       sendMessageToTab(tabId, {
@@ -791,6 +792,7 @@ async function updateOverlay(tabId, forceHide = false) {
     overlayBackgroundOpacity,
     timeLimits,
     tabLimits,
+    rememberTimerPosition,
   } = await getSettings();
 
   if (!overlayEnabled || forceHide) {
@@ -837,6 +839,7 @@ async function updateOverlay(tabId, forceHide = false) {
     limitMinutes: timeLimits?.[match.key],
     tabCount,
     tabLimit: Number.isFinite(tabLimit) && tabLimit > 0 ? tabLimit : null,
+    rememberTimerPosition,
   });
   await updateBlockState(tabId, match.key);
 }
@@ -969,6 +972,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const menuTextScale = Number.isFinite(parsedMenuTextScale)
         ? parsedMenuTextScale
         : 1;
+      const rememberTimerPosition =
+        typeof msg.rememberTimerPosition === "boolean"
+          ? msg.rememberTimerPosition
+          : !!existingSettings.rememberTimerPosition;
       const timeLimits = normalizeTimeLimits(msg.timeLimits);
       const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
       const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
@@ -1051,10 +1058,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         waitLimits,
         entryDelayLimits,
         tabLimits,
+        rememberTimerPosition,
       });
       await refreshAllowlistForTabLimitKeys(changedTabLimitKeys, {
         trackedSites,
         tabLimits,
+        rememberTimerPosition,
       });
 
       const nextLocks = { ...lockMap };

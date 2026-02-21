@@ -28,6 +28,26 @@
           <div id="limits-list" class="limits-list"></div>
         </div>
 
+        <section class="legend" aria-label="Site settings legend">
+          <h2>Column legend and defaults</h2>
+          <ul>
+            <li><strong>Site:</strong> Domain or domain/path to track.</li>
+            <li><strong>Daily limit (min):</strong> Empty = no daily limit. <code>0</code> = always blocked.</li>
+            <li><strong>Break after (min):</strong> Minutes of use before a break cycle starts. Empty = off.</li>
+            <li><strong>Block for (min):</strong> Break duration once the break cycle is triggered. Empty = off.</li>
+            <li><strong>Entry wait (min):</strong> Delay after opening a tracked site before it becomes usable. Empty = off.</li>
+            <li><strong>Edit wait (min):</strong> Wait before this site row can be edited again after a change. Empty = off.</li>
+            <li><strong>Tabs:</strong> Maximum allowed open tabs for that site. Empty = no tab limit.</li>
+          </ul>
+        </section>
+
+        <section class="persist-setting" aria-label="Overlay timer position setting">
+          <label>
+            <input type="checkbox" id="remember-timer-position" />
+            Remember moved timer position per site (persists after refresh)
+          </label>
+        </section>
+
         <div class="actions">
           <button type="button" id="add-site">Add site</button>
           <button type="submit" id="save">Save</button>

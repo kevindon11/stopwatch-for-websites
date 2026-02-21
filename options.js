@@ -3,6 +3,7 @@ const addButton = document.getElementById("add-site");
 const status = document.getElementById("status");
 const resetButton = document.getElementById("reset-today");
 const resetCountdown = document.getElementById("reset-countdown");
+const rememberTimerPositionInput = document.getElementById("remember-timer-position");
 
 let cachedSettings = null;
 let cachedLocks = {};
@@ -38,10 +39,11 @@ function normalizeTrackedEntry(entry) {
   return `${host}${path}`;
 }
 
-function parseLimit(value) {
+function parseLimit(value, { allowZero = false } = {}) {
   if (value === "" || value == null) return null;
   const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  if (!Number.isFinite(parsed)) return null;
+  if (allowZero ? parsed < 0 : parsed <= 0) return null;
   return parsed;
 }
 
@@ -62,45 +64,45 @@ function createRow(entry = {}) {
 
   const timeInput = document.createElement("input");
   timeInput.type = "number";
-  timeInput.min = "1";
+  timeInput.min = "0";
   timeInput.step = "1";
-  timeInput.placeholder = "—";
-  timeInput.value = entry.timeLimit || "";
+  timeInput.placeholder = "";
+  timeInput.value = entry.timeLimit ?? "";
 
   const tabInput = document.createElement("input");
   tabInput.type = "number";
   tabInput.min = "1";
   tabInput.step = "1";
-  tabInput.placeholder = "—";
-  tabInput.value = entry.tabLimit || "";
+  tabInput.placeholder = "";
+  tabInput.value = entry.tabLimit ?? "";
 
   const breakAfterInput = document.createElement("input");
   breakAfterInput.type = "number";
   breakAfterInput.min = "1";
   breakAfterInput.step = "1";
-  breakAfterInput.placeholder = "—";
-  breakAfterInput.value = entry.breakAfter || "";
+  breakAfterInput.placeholder = "";
+  breakAfterInput.value = entry.breakAfter ?? "";
 
   const breakDurationInput = document.createElement("input");
   breakDurationInput.type = "number";
   breakDurationInput.min = "1";
   breakDurationInput.step = "1";
-  breakDurationInput.placeholder = "—";
-  breakDurationInput.value = entry.breakDuration || "";
+  breakDurationInput.placeholder = "";
+  breakDurationInput.value = entry.breakDuration ?? "";
 
   const entryDelayInput = document.createElement("input");
   entryDelayInput.type = "number";
   entryDelayInput.min = "1";
   entryDelayInput.step = "1";
-  entryDelayInput.placeholder = "—";
-  entryDelayInput.value = entry.entryDelay || "";
+  entryDelayInput.placeholder = "";
+  entryDelayInput.value = entry.entryDelay ?? "";
 
   const waitLimitInput = document.createElement("input");
   waitLimitInput.type = "number";
   waitLimitInput.min = "1";
   waitLimitInput.step = "1";
-  waitLimitInput.placeholder = "—";
-  waitLimitInput.value = entry.waitLimit || "";
+  waitLimitInput.placeholder = "";
+  waitLimitInput.value = entry.waitLimit ?? "";
 
   const actionCell = document.createElement("div");
   actionCell.className = "action-cell";
@@ -230,6 +232,9 @@ async function loadOptions() {
   const waitLimits = cachedSettings.waitLimits || {};
   const entryDelayLimits = cachedSettings.entryDelayLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
+  if (rememberTimerPositionInput) {
+    rememberTimerPositionInput.checked = !!cachedSettings.rememberTimerPosition;
+  }
   limitsList.innerHTML = "";
 
   if (!trackedSites.length) {
@@ -318,7 +323,7 @@ async function saveOptions(event) {
     }
 
     trackedSites.push(siteRaw);
-    const timeLimit = parseLimit(timeInput.value);
+    const timeLimit = parseLimit(timeInput.value, { allowZero: true });
     if (timeLimit != null) {
       timeLimits[key] = timeLimit;
     }
@@ -359,6 +364,7 @@ async function saveOptions(event) {
     overlayTextColor: cachedSettings?.overlayTextColor,
     overlayBackgroundOpacity: cachedSettings?.overlayBackgroundOpacity,
     menuTextScale: cachedSettings?.menuTextScale,
+    rememberTimerPosition: rememberTimerPositionInput?.checked ?? false,
   });
 
   if (!response?.ok) {

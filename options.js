@@ -87,6 +87,13 @@ function createRow(entry = {}) {
   breakAfterInput.placeholder = "";
   breakAfterInput.value = entry.breakAfter || "";
 
+  const gracePeriodInput = document.createElement("input");
+  gracePeriodInput.type = "number";
+  gracePeriodInput.min = "1";
+  gracePeriodInput.step = "1";
+  gracePeriodInput.placeholder = "";
+  gracePeriodInput.value = entry.gracePeriod || "";
+
   const breakDurationInput = document.createElement("input");
   breakDurationInput.type = "number";
   breakDurationInput.min = "1";
@@ -129,6 +136,7 @@ function createRow(entry = {}) {
   row.appendChild(tabInput);
   row.appendChild(timeInput);
   row.appendChild(breakAfterInput);
+  row.appendChild(gracePeriodInput);
   row.appendChild(breakDurationInput);
   row.appendChild(entryDelayInput);
   row.appendChild(waitLimitInput);
@@ -233,6 +241,7 @@ async function loadOptions() {
   const timeLimits = cachedSettings.timeLimits || {};
   const breakAfterLimits = cachedSettings.breakAfterLimits || {};
   const breakDurationLimits = cachedSettings.breakDurationLimits || {};
+  const breakGraceLimits = cachedSettings.breakGraceLimits || {};
   const waitLimits = cachedSettings.waitLimits || {};
   const entryDelayLimits = cachedSettings.entryDelayLimits || {};
   const tabLimits = cachedSettings.tabLimits || {};
@@ -251,6 +260,7 @@ async function loadOptions() {
       site,
       timeLimit: timeLimits[key] ?? "",
       breakAfter: breakAfterLimits[key] ?? "",
+      gracePeriod: breakGraceLimits[key] ?? "",
       breakDuration: breakDurationLimits[key] ?? "",
       entryDelay: entryDelayLimits[key] ?? "",
       waitLimit,
@@ -302,6 +312,7 @@ async function saveOptions(event) {
   const timeLimits = {};
   const breakAfterLimits = {};
   const breakDurationLimits = {};
+  const breakGraceLimits = {};
   const entryDelayLimits = {};
   const waitLimits = {};
   const tabLimits = {};
@@ -312,6 +323,7 @@ async function saveOptions(event) {
       tabInput,
       timeInput,
       breakAfterInput,
+      gracePeriodInput,
       breakDurationInput,
       entryDelayInput,
       waitLimitInput,
@@ -331,6 +343,10 @@ async function saveOptions(event) {
     const breakAfter = parsePositiveLimit(breakAfterInput.value);
     if (breakAfter != null) {
       breakAfterLimits[key] = breakAfter;
+    }
+    const gracePeriod = parsePositiveLimit(gracePeriodInput.value);
+    if (gracePeriod != null) {
+      breakGraceLimits[key] = gracePeriod;
     }
     const breakDuration = parsePositiveLimit(breakDurationInput.value);
     if (breakDuration != null) {
@@ -356,6 +372,7 @@ async function saveOptions(event) {
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
+    breakGraceLimits,
     entryDelayLimits,
     waitLimits,
     tabLimits,

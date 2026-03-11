@@ -17,3 +17,5 @@ Tracked times reset per local day. Use the **Reset today** button in the popup
 to clear today's totals.
 
 If updating, make sure to update the menu Extension info with what was most recently updated
+
+Per-site settings in Options include daily limits plus break controls (`Break after`, `Grace`, and `Block for`) so you can delay when forced-break countdown starts while still tracking daily usage.

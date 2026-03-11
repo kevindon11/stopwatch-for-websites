@@ -114,6 +114,7 @@ async function getSettings() {
     timeLimits,
     breakAfterLimits,
     breakDurationLimits,
+    breakGraceLimits,
     waitLimits,
     entryDelayLimits,
     tabLimits,
@@ -129,6 +130,7 @@ async function getSettings() {
     timeLimits: {},
     breakAfterLimits: {},
     breakDurationLimits: {},
+    breakGraceLimits: {},
     waitLimits: {},
     entryDelayLimits: {},
     tabLimits: {},
@@ -157,6 +159,7 @@ async function getSettings() {
     timeLimits: normalizeTimeLimits(timeLimits),
     breakAfterLimits: normalizeBreakLimits(breakAfterLimits),
     breakDurationLimits: normalizeBreakLimits(breakDurationLimits),
+    breakGraceLimits: normalizeBreakLimits(breakGraceLimits),
     waitLimits: normalizeWaitLimits(waitLimits),
     entryDelayLimits: normalizeEntryDelayLimits(entryDelayLimits),
     tabLimits: normalizeTabLimits(tabLimits),
@@ -636,6 +639,9 @@ async function flushActiveTime() {
   const breakDurationMinutes = Number.parseFloat(
     settings.breakDurationLimits?.[activeKey],
   );
+  const gracePeriodMinutes = Number.parseFloat(
+    settings.breakGraceLimits?.[activeKey],
+  );
   const hasBreakConfig =
     Number.isFinite(breakAfterMinutes) &&
     breakAfterMinutes > 0 &&
@@ -670,7 +676,10 @@ async function flushActiveTime() {
 
   if (hasBreakConfig) {
     const cycleMs = await addCycleTimeForKey(activeKey, delta);
-    const thresholdMs = breakAfterMinutes * 60000;
+    const graceMs = Number.isFinite(gracePeriodMinutes) && gracePeriodMinutes > 0
+      ? gracePeriodMinutes * 60000
+      : 0;
+    const thresholdMs = graceMs + breakAfterMinutes * 60000;
     if (cycleMs < thresholdMs - BREAK_WARNING_WINDOW_MS) {
       breakWarningSent.delete(activeKey);
     } else {
@@ -1010,6 +1019,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const timeLimits = normalizeTimeLimits(msg.timeLimits);
       const breakAfterLimits = normalizeBreakLimits(msg.breakAfterLimits);
       const breakDurationLimits = normalizeBreakLimits(msg.breakDurationLimits);
+      const breakGraceLimits = normalizeBreakLimits(msg.breakGraceLimits);
       const waitLimits = normalizeWaitLimits(msg.waitLimits);
       const entryDelayLimits = normalizeEntryDelayLimits(msg.entryDelayLimits);
       const tabLimits = normalizeTabLimits(msg.tabLimits);
@@ -1051,6 +1061,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           (breakDurationLimits[key] ?? null)) {
           return true;
         }
+        if ((existingSettings.breakGraceLimits?.[key] ?? null) !==
+          (breakGraceLimits[key] ?? null)) {
+          return true;
+        }
         if ((existingSettings.waitLimits?.[key] ?? null) !==
           (waitLimits[key] ?? null)) {
           return true;
@@ -1087,6 +1101,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         timeLimits,
         breakAfterLimits,
         breakDurationLimits,
+        breakGraceLimits,
         waitLimits,
         entryDelayLimits,
         tabLimits,

@@ -82,6 +82,53 @@ if errorlevel 1 (
 echo.
 echo Done. You are now on !localBranch! and up to date.
 
+echo.
+set /p mergeToMain=Also merge !localBranch! into main now? ^(Y/N, default N^): 
+if /I "!mergeToMain!"=="Y" goto :merge_main
+if /I "!mergeToMain!"=="YES" goto :merge_main
+if "!mergeToMain!"=="" goto :done
+if /I "!mergeToMain!"=="N" goto :done
+if /I "!mergeToMain!"=="NO" goto :done
+
+echo [WARN] Unrecognized choice. Skipping merge into main.
+goto :done
+
+:merge_main
+echo.
+echo Preparing main branch...
+git checkout main >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] Could not checkout main.
+  echo.
+  pause
+  exit /b 1
+)
+
+git pull --ff-only origin main
+if errorlevel 1 (
+  echo [ERROR] Could not update local main from origin/main.
+  echo.
+  pause
+  exit /b 1
+)
+
+if /I "!localBranch!"=="main" (
+  echo [INFO] Selected branch is main; nothing to merge.
+  goto :done
+)
+
+echo Merging !localBranch! into main...
+git merge "!localBranch!"
+if errorlevel 1 (
+  echo [ERROR] Merge failed. Resolve conflicts manually, then continue.
+  echo.
+  pause
+  exit /b 1
+)
+
+echo [OK] Merged !localBranch! into main.
+
+
 goto :done
 
 :invalid

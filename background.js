@@ -656,6 +656,7 @@ async function flushActiveTime() {
       activeTabId,
       activeKey,
       entryDelayMinutes,
+      gracePeriodMinutes,
     );
     if (
       Number.isFinite(entryDelayBlockedUntil) &&
@@ -735,22 +736,35 @@ function sendMessageToTab(tabId, message) {
   chrome.tabs.sendMessage(tabId, message).catch(() => {});
 }
 
-function getEntryDelayBlockedUntil(tabId, key, entryDelayMinutes) {
+function getEntryDelayBlockedUntil(tabId, key, entryDelayMinutes, gracePeriodMinutes = 0) {
   if (!Number.isInteger(tabId)) return 0;
   if (!Number.isFinite(entryDelayMinutes) || entryDelayMinutes <= 0) return 0;
 
   const now = Date.now();
-  const existing = entryDelayByTabId.get(tabId);
-  if (existing && existing.key === key) {
-    if (existing.blockedUntil > now) {
-      return existing.blockedUntil;
-    }
+  const graceMs =
+    Number.isFinite(gracePeriodMinutes) && gracePeriodMinutes > 0
+      ? gracePeriodMinutes * 60000
+      : 0;
+  const entryMs = entryDelayMinutes * 60000;
+
+  let existing = entryDelayByTabId.get(tabId);
+  if (!existing || existing.key !== key) {
+    existing = { key, startedAt: now };
+    entryDelayByTabId.set(tabId, existing);
+  }
+
+  const blockStartsAt = existing.startedAt + graceMs;
+  const blockedUntil = blockStartsAt + entryMs;
+
+  if (now < blockStartsAt) {
     return 0;
   }
 
-  const blockedUntil = now + entryDelayMinutes * 60000;
-  entryDelayByTabId.set(tabId, { key, blockedUntil });
-  return blockedUntil;
+  if (now < blockedUntil) {
+    return blockedUntil;
+  }
+
+  return 0;
 }
 
 async function updateBlockState(tabId, key) {
@@ -760,7 +774,13 @@ async function updateBlockState(tabId, key) {
     return;
   }
   const settings = await getSettings();
-  const { timeLimits, breakAfterLimits, breakDurationLimits, entryDelayLimits } = settings;
+  const {
+    timeLimits,
+    breakAfterLimits,
+    breakDurationLimits,
+    breakGraceLimits,
+    entryDelayLimits,
+  } = settings;
   const limitMinutes = Number.parseFloat(timeLimits?.[key]);
   if (!Number.isFinite(limitMinutes) || limitMinutes < 0) {
     // continue to break check
@@ -802,8 +822,14 @@ async function updateBlockState(tabId, key) {
   }
 
   const entryDelayMinutes = Number.parseFloat(entryDelayLimits?.[key]);
+  const gracePeriodMinutes = Number.parseFloat(breakGraceLimits?.[key]);
   if (Number.isFinite(entryDelayMinutes) && entryDelayMinutes > 0) {
-    const blockedUntil = getEntryDelayBlockedUntil(tabId, key, entryDelayMinutes);
+    const blockedUntil = getEntryDelayBlockedUntil(
+      tabId,
+      key,
+      entryDelayMinutes,
+      gracePeriodMinutes,
+    );
     if (Number.isFinite(blockedUntil) && blockedUntil > Date.now()) {
       sendMessageToTab(tabId, {
         type: "BLOCK_SHOW",

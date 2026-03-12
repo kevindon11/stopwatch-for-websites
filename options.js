@@ -39,16 +39,60 @@ function normalizeTrackedEntry(entry) {
 
 function parsePositiveLimit(value) {
   if (value === "" || value == null) return null;
-  const parsed = Number.parseFloat(value);
+  const parsed = parseMinutesInput(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return parsed;
 }
 
 function parseDailyLimit(value) {
   if (value === "" || value == null) return null;
-  const parsed = Number.parseFloat(value);
+  const parsed = parseMinutesInput(value);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed;
+}
+
+function parseMinutesInput(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const colonMatch = raw.match(/^(\d+):(\d{1,2})$/);
+  if (colonMatch) {
+    const minutes = Number.parseInt(colonMatch[1], 10);
+    const seconds = Number.parseInt(colonMatch[2], 10);
+    if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+    if (seconds >= 60) return null;
+    return minutes + seconds / 60;
+  }
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatMinutesInput(value) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return "";
+  if (Number.isInteger(parsed)) return String(parsed);
+  const minutes = Math.floor(parsed);
+  const seconds = Math.round((parsed - minutes) * 60);
+  if (seconds === 60) return String(minutes + 1);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getMinuteFieldValue(input) {
+  const parsed = parseMinutesInput(input.value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function setupMinuteFieldInput(input, value) {
+  input.type = "text";
+  input.inputMode = "decimal";
+  input.placeholder = "";
+  input.value = formatMinutesInput(value);
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const delta = event.key === "ArrowUp" ? 1 : -1;
+    const next = Math.max(0, Math.floor(getMinuteFieldValue(input) + delta));
+    input.value = String(next);
+  });
 }
 
 function parseTabLimit(value) {
@@ -67,11 +111,7 @@ function createRow(entry = {}) {
   siteInput.required = true;
 
   const timeInput = document.createElement("input");
-  timeInput.type = "number";
-  timeInput.min = "0";
-  timeInput.step = "1";
-  timeInput.placeholder = "";
-  timeInput.value = entry.timeLimit || "";
+  setupMinuteFieldInput(timeInput, entry.timeLimit || "");
 
   const tabInput = document.createElement("input");
   tabInput.type = "number";
@@ -81,39 +121,19 @@ function createRow(entry = {}) {
   tabInput.value = entry.tabLimit || "";
 
   const breakAfterInput = document.createElement("input");
-  breakAfterInput.type = "number";
-  breakAfterInput.min = "1";
-  breakAfterInput.step = "1";
-  breakAfterInput.placeholder = "";
-  breakAfterInput.value = entry.breakAfter || "";
+  setupMinuteFieldInput(breakAfterInput, entry.breakAfter || "");
 
   const gracePeriodInput = document.createElement("input");
-  gracePeriodInput.type = "number";
-  gracePeriodInput.min = "1";
-  gracePeriodInput.step = "1";
-  gracePeriodInput.placeholder = "";
-  gracePeriodInput.value = entry.gracePeriod || "";
+  setupMinuteFieldInput(gracePeriodInput, entry.gracePeriod || "");
 
   const breakDurationInput = document.createElement("input");
-  breakDurationInput.type = "number";
-  breakDurationInput.min = "1";
-  breakDurationInput.step = "1";
-  breakDurationInput.placeholder = "";
-  breakDurationInput.value = entry.breakDuration || "";
+  setupMinuteFieldInput(breakDurationInput, entry.breakDuration || "");
 
   const entryDelayInput = document.createElement("input");
-  entryDelayInput.type = "number";
-  entryDelayInput.min = "1";
-  entryDelayInput.step = "1";
-  entryDelayInput.placeholder = "";
-  entryDelayInput.value = entry.entryDelay || "";
+  setupMinuteFieldInput(entryDelayInput, entry.entryDelay || "");
 
   const waitLimitInput = document.createElement("input");
-  waitLimitInput.type = "number";
-  waitLimitInput.min = "1";
-  waitLimitInput.step = "1";
-  waitLimitInput.placeholder = "";
-  waitLimitInput.value = entry.waitLimit || "";
+  setupMinuteFieldInput(waitLimitInput, entry.waitLimit || "");
 
   const actionCell = document.createElement("div");
   actionCell.className = "action-cell";

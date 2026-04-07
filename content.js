@@ -15,7 +15,7 @@ let blockState = {
   limitMinutes: null,
   totalMs: 0,
   reason: "daily",
-  blockedUntil: 0,
+  remainingMs: 0,
   breakAfterMinutes: null,
   breakDurationMinutes: null,
   entryDelayMinutes: null,
@@ -431,7 +431,7 @@ function updateBlockDetails() {
   if (!details || !title) return;
   if (blockState.reason === "cooldown") {
     title.textContent = "Break time";
-    const remainingMs = (blockState.blockedUntil || 0) - Date.now();
+    const remainingMs = blockState.remainingMs || 0;
     const durationText = blockState.breakDurationMinutes
       ? `${blockState.breakDurationMinutes}m`
       : "a few minutes";
@@ -441,7 +441,7 @@ function updateBlockDetails() {
 
   if (blockState.reason === "entryDelay") {
     title.textContent = "Please wait";
-    const remainingMs = (blockState.blockedUntil || 0) - Date.now();
+    const remainingMs = blockState.remainingMs || 0;
     const durationText = blockState.entryDelayMinutes
       ? `${blockState.entryDelayMinutes}m`
       : "a few minutes";
@@ -615,6 +615,12 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (!overlayDismissed) {
       refreshOverlayTime();
     }
+    if (
+      (blockState.reason === "entryDelay" || blockState.reason === "cooldown") &&
+      blockState.remainingMs > 0
+    ) {
+      blockState.remainingMs = Math.max(0, blockState.remainingMs - 1000);
+    }
     if (blockEl && blockEl.style.display !== "none") {
       updateBlockDetails();
     }
@@ -637,7 +643,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       reason: ["cooldown", "entryDelay"].includes(msg.reason)
         ? msg.reason
         : "daily",
-      blockedUntil: Number.isFinite(msg.blockedUntil) ? msg.blockedUntil : 0,
+      remainingMs: Number.isFinite(msg.remainingMs) ? msg.remainingMs : 0,
       breakAfterMinutes: Number.isFinite(msg.breakAfterMinutes)
         ? msg.breakAfterMinutes
         : null,

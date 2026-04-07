@@ -652,16 +652,14 @@ async function flushActiveTime() {
   );
 
   if (Number.isFinite(entryDelayMinutes) && entryDelayMinutes > 0) {
-    const entryDelayBlockedUntil = getEntryDelayBlockedUntil(
+    const entryDelayRemainingMs = getEntryDelayRemainingMs(
       activeTabId,
       activeKey,
       entryDelayMinutes,
       gracePeriodMinutes,
+      delta,
     );
-    if (
-      Number.isFinite(entryDelayBlockedUntil) &&
-      entryDelayBlockedUntil > now
-    ) {
+    if (Number.isFinite(entryDelayRemainingMs) && entryDelayRemainingMs > 0) {
       return;
     }
   }
@@ -736,11 +734,16 @@ function sendMessageToTab(tabId, message) {
   chrome.tabs.sendMessage(tabId, message).catch(() => {});
 }
 
-function getEntryDelayBlockedUntil(tabId, key, entryDelayMinutes, gracePeriodMinutes = 0) {
+function getEntryDelayRemainingMs(
+  tabId,
+  key,
+  entryDelayMinutes,
+  gracePeriodMinutes = 0,
+  elapsedDeltaMs = 0,
+) {
   if (!Number.isInteger(tabId)) return 0;
   if (!Number.isFinite(entryDelayMinutes) || entryDelayMinutes <= 0) return 0;
 
-  const now = Date.now();
   const graceMs =
     Number.isFinite(gracePeriodMinutes) && gracePeriodMinutes > 0
       ? gracePeriodMinutes * 60000
@@ -749,22 +752,20 @@ function getEntryDelayBlockedUntil(tabId, key, entryDelayMinutes, gracePeriodMin
 
   let existing = entryDelayByTabId.get(tabId);
   if (!existing || existing.key !== key) {
-    existing = { key, startedAt: now };
+    existing = { key, elapsedMs: 0 };
     entryDelayByTabId.set(tabId, existing);
   }
 
-  const blockStartsAt = existing.startedAt + graceMs;
-  const blockedUntil = blockStartsAt + entryMs;
+  if (Number.isFinite(elapsedDeltaMs) && elapsedDeltaMs > 0) {
+    existing.elapsedMs += elapsedDeltaMs;
+  }
 
-  if (now < blockStartsAt) {
+  if (existing.elapsedMs < graceMs) {
     return 0;
   }
 
-  if (now < blockedUntil) {
-    return blockedUntil;
-  }
-
-  return 0;
+  const elapsedIntoBlockMs = existing.elapsedMs - graceMs;
+  return Math.max(0, entryMs - elapsedIntoBlockMs);
 }
 
 async function updateBlockState(tabId, key) {
@@ -813,7 +814,7 @@ async function updateBlockState(tabId, key) {
         type: "BLOCK_SHOW",
         key,
         reason: "cooldown",
-        blockedUntil,
+        remainingMs: blockedUntil - now,
         breakAfterMinutes,
         breakDurationMinutes,
       });
@@ -824,18 +825,18 @@ async function updateBlockState(tabId, key) {
   const entryDelayMinutes = Number.parseFloat(entryDelayLimits?.[key]);
   const gracePeriodMinutes = Number.parseFloat(breakGraceLimits?.[key]);
   if (Number.isFinite(entryDelayMinutes) && entryDelayMinutes > 0) {
-    const blockedUntil = getEntryDelayBlockedUntil(
+    const remainingMs = getEntryDelayRemainingMs(
       tabId,
       key,
       entryDelayMinutes,
       gracePeriodMinutes,
     );
-    if (Number.isFinite(blockedUntil) && blockedUntil > Date.now()) {
+    if (Number.isFinite(remainingMs) && remainingMs > 0) {
       sendMessageToTab(tabId, {
         type: "BLOCK_SHOW",
         key,
         reason: "entryDelay",
-        blockedUntil,
+        remainingMs,
         entryDelayMinutes,
       });
       return;

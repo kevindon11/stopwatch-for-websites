@@ -606,10 +606,10 @@ async function setActiveFromTab(tab) {
 
   activeTabId = tab.id;
   activeKey = match.key;
-  lastTickMs = canTrackTime() ? Date.now() : null;
-  activeWindowId = tab.windowId ?? null;
   const now = Date.now();
   lastActivityByTabId.set(tab.id, now);
+  lastTickMs = canTrackTime() ? now : null;
+  activeWindowId = tab.windowId ?? null;
   await applyCycleDecayForKey(activeKey, now);
   await updateBadge(activeKey);
   await updateBlockState(tab.id, activeKey);
@@ -657,7 +657,6 @@ async function flushActiveTime() {
       activeKey,
       entryDelayMinutes,
       gracePeriodMinutes,
-      delta,
     );
     if (Number.isFinite(entryDelayRemainingMs) && entryDelayRemainingMs > 0) {
       return;
@@ -739,7 +738,6 @@ function getEntryDelayRemainingMs(
   key,
   entryDelayMinutes,
   gracePeriodMinutes = 0,
-  elapsedDeltaMs = 0,
 ) {
   if (!Number.isInteger(tabId)) return 0;
   if (!Number.isFinite(entryDelayMinutes) || entryDelayMinutes <= 0) return 0;
@@ -756,16 +754,30 @@ function getEntryDelayRemainingMs(
     entryDelayByTabId.set(tabId, existing);
   }
 
-  if (Number.isFinite(elapsedDeltaMs) && elapsedDeltaMs > 0) {
-    existing.elapsedMs += elapsedDeltaMs;
-  }
+  const elapsedMs = Number.isFinite(existing.elapsedMs)
+    ? Math.max(0, existing.elapsedMs)
+    : 0;
 
-  if (existing.elapsedMs < graceMs) {
+  if (elapsedMs < graceMs) {
     return 0;
   }
 
-  const elapsedIntoBlockMs = existing.elapsedMs - graceMs;
+  const elapsedIntoBlockMs = elapsedMs - graceMs;
   return Math.max(0, entryMs - elapsedIntoBlockMs);
+}
+
+function advanceEntryDelayElapsedMs(tabId, key, deltaMs) {
+  if (!Number.isInteger(tabId)) return;
+  if (!key) return;
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
+
+  let existing = entryDelayByTabId.get(tabId);
+  if (!existing || existing.key !== key) {
+    existing = { key, elapsedMs: 0 };
+    entryDelayByTabId.set(tabId, existing);
+  }
+
+  existing.elapsedMs = (Number.isFinite(existing.elapsedMs) ? existing.elapsedMs : 0) + deltaMs;
 }
 
 async function updateBlockState(tabId, key) {
@@ -916,8 +928,7 @@ async function updateOverlay(tabId, forceHide = false) {
 }
 
 setInterval(async () => {
-  if (!activeTabId || !activeKey || !lastTickMs) return;
-  if (!canTrackTime()) return;
+  if (!activeTabId || !activeKey) return;
 
   const tab = await chrome.tabs.get(activeTabId).catch(() => null);
   if (!tab) {
@@ -937,7 +948,10 @@ setInterval(async () => {
     if (!windowInfo?.focused) return;
   }
 
-  await flushActiveTime();
+  if (canTrackTime() && lastTickMs) {
+    await flushActiveTime();
+  }
+  advanceEntryDelayElapsedMs(activeTabId, activeKey, 1000);
   sendMessageToTab(activeTabId, { type: "OVERLAY_TICK" });
   await updateBlockState(activeTabId, activeKey);
 }, 1000);

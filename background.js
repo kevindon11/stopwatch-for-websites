@@ -59,7 +59,7 @@ function normalizeBreakLimits(raw) {
   if (!raw || typeof raw !== "object") return limits;
   Object.entries(raw).forEach(([key, value]) => {
     const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (Number.isFinite(parsed) && parsed >= 0) {
       limits[key] = parsed;
     }
   });
@@ -71,7 +71,7 @@ function normalizeWaitLimits(raw) {
   if (!raw || typeof raw !== "object") return limits;
   Object.entries(raw).forEach(([key, value]) => {
     const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (Number.isFinite(parsed) && parsed >= 0) {
       limits[key] = parsed;
     }
   });
@@ -83,7 +83,7 @@ function normalizeEntryDelayLimits(raw) {
   if (!raw || typeof raw !== "object") return limits;
   Object.entries(raw).forEach(([key, value]) => {
     const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (Number.isFinite(parsed) && parsed >= 0) {
       limits[key] = parsed;
     }
   });
@@ -95,7 +95,7 @@ function normalizeTabLimits(raw) {
   if (!raw || typeof raw !== "object") return limits;
   Object.entries(raw).forEach(([key, value]) => {
     const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (Number.isFinite(parsed) && parsed >= 0) {
       limits[key] = Math.floor(parsed);
     }
   });
@@ -368,7 +368,7 @@ async function refreshAllowlistForTabLimitKeys(keys, settings) {
   const allowlist = await getTabLimitAllowlist();
   for (const key of keys) {
     const limit = Number(settings.tabLimits?.[key]);
-    if (!Number.isFinite(limit) || limit <= 0) {
+    if (!Number.isFinite(limit) || limit < 0) {
       if (key in allowlist) {
         delete allowlist[key];
       }
@@ -401,7 +401,17 @@ async function enforceTabLimit(tab, settings = null) {
   const match = getMatchForTab(tab, currentSettings.trackedSites);
   if (!match) return;
   const limit = Number(currentSettings.tabLimits?.[match.key]);
-  if (!Number.isFinite(limit) || limit <= 0) return;
+  if (!Number.isFinite(limit) || limit < 0) return;
+
+  if (limit === 0) {
+    const allowlist = await getTabLimitAllowlist();
+    if (match.key in allowlist) {
+      delete allowlist[match.key];
+      await setTabLimitAllowlist(allowlist);
+    }
+    await chrome.tabs.remove(tab.id);
+    return;
+  }
 
   const matching = await getTabsByKey(match.key, currentSettings.trackedSites);
   const allowlist = await getTabLimitAllowlist();
@@ -419,7 +429,7 @@ async function enforceTabLimit(tab, settings = null) {
 
 async function sendTabStatusForKey(key, settings) {
   const limit = Number(settings.tabLimits?.[key]);
-  if (!Number.isFinite(limit) || limit <= 0) return;
+  if (!Number.isFinite(limit) || limit < 0) return;
   const matching = await getTabsByKey(key, settings.trackedSites);
   const payload = {
     type: "OVERLAY_TAB_STATUS",
@@ -644,7 +654,7 @@ async function flushActiveTime() {
   );
   const hasBreakConfig =
     Number.isFinite(breakAfterMinutes) &&
-    breakAfterMinutes > 0 &&
+    breakAfterMinutes >= 0 &&
     Number.isFinite(breakDurationMinutes) &&
     breakDurationMinutes > 0;
   const entryDelayMinutes = Number.parseFloat(
@@ -815,7 +825,7 @@ async function updateBlockState(tabId, key) {
   const breakDurationMinutes = Number.parseFloat(breakDurationLimits?.[key]);
   const hasBreakConfig =
     Number.isFinite(breakAfterMinutes) &&
-    breakAfterMinutes > 0 &&
+    breakAfterMinutes >= 0 &&
     Number.isFinite(breakDurationMinutes) &&
     breakDurationMinutes > 0;
   if (hasBreakConfig) {
@@ -899,7 +909,7 @@ async function updateOverlay(tabId, forceHide = false) {
 
   let tabCount = null;
   const tabLimit = Number(tabLimits?.[match.key]);
-  if (Number.isFinite(tabLimit) && tabLimit > 0) {
+  if (Number.isFinite(tabLimit) && tabLimit >= 0) {
     const matching = await getTabsByKey(match.key, trackedSites);
     tabCount = matching.length;
   }
@@ -920,7 +930,7 @@ async function updateOverlay(tabId, forceHide = false) {
     clickThrough: true,
     limitMinutes: timeLimits?.[match.key],
     tabCount,
-    tabLimit: Number.isFinite(tabLimit) && tabLimit > 0 ? tabLimit : null,
+    tabLimit: Number.isFinite(tabLimit) && tabLimit >= 0 ? tabLimit : null,
     rememberPosition: rememberOverlayPosition,
     position,
   });

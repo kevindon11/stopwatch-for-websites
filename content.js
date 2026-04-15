@@ -432,7 +432,7 @@ function updateBlockDetails() {
   if (blockState.reason === "cooldown") {
     title.textContent = "Break time";
     const remainingMs = blockState.remainingMs || 0;
-    const durationText = blockState.breakDurationMinutes
+    const durationText = Number.isFinite(blockState.breakDurationMinutes)
       ? `${blockState.breakDurationMinutes}m`
       : "a few minutes";
     details.textContent = `Blocked for ${durationText} · Back in ${fmtRemaining(remainingMs)}`;
@@ -442,7 +442,7 @@ function updateBlockDetails() {
   if (blockState.reason === "entryDelay") {
     title.textContent = "Please wait";
     const remainingMs = blockState.remainingMs || 0;
-    const durationText = blockState.entryDelayMinutes
+    const durationText = Number.isFinite(blockState.entryDelayMinutes)
       ? `${blockState.entryDelayMinutes}m`
       : "a few minutes";
     details.textContent = `Entry delay: ${durationText} · Back in ${fmtRemaining(remainingMs)}`;
@@ -450,7 +450,7 @@ function updateBlockDetails() {
   }
 
   title.textContent = "Daily limit reached";
-  const limitText = blockState.limitMinutes
+  const limitText = Number.isFinite(blockState.limitMinutes)
     ? `${blockState.limitMinutes}m`
     : "No limit";
   const totalText = fmtMinutes(blockState.totalMs || 0);

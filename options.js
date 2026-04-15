@@ -37,10 +37,10 @@ function normalizeTrackedEntry(entry) {
   return `${host}${path}`;
 }
 
-function parsePositiveLimit(value) {
+function parseNonNegativeLimit(value) {
   if (value === "" || value == null) return null;
   const parsed = parseMinutesInput(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed;
 }
 
@@ -96,7 +96,7 @@ function setupMinuteFieldInput(input, value) {
 }
 
 function parseTabLimit(value) {
-  const parsed = parsePositiveLimit(value);
+  const parsed = parseNonNegativeLimit(value);
   return parsed == null ? null : Math.floor(parsed);
 }
 
@@ -111,29 +111,29 @@ function createRow(entry = {}) {
   siteInput.required = true;
 
   const timeInput = document.createElement("input");
-  setupMinuteFieldInput(timeInput, entry.timeLimit || "");
+  setupMinuteFieldInput(timeInput, entry.timeLimit ?? "");
 
   const tabInput = document.createElement("input");
   tabInput.type = "number";
-  tabInput.min = "1";
+  tabInput.min = "0";
   tabInput.step = "1";
   tabInput.placeholder = "";
-  tabInput.value = entry.tabLimit || "";
+  tabInput.value = entry.tabLimit ?? "";
 
   const breakAfterInput = document.createElement("input");
-  setupMinuteFieldInput(breakAfterInput, entry.breakAfter || "");
+  setupMinuteFieldInput(breakAfterInput, entry.breakAfter ?? "");
 
   const gracePeriodInput = document.createElement("input");
-  setupMinuteFieldInput(gracePeriodInput, entry.gracePeriod || "");
+  setupMinuteFieldInput(gracePeriodInput, entry.gracePeriod ?? "");
 
   const breakDurationInput = document.createElement("input");
-  setupMinuteFieldInput(breakDurationInput, entry.breakDuration || "");
+  setupMinuteFieldInput(breakDurationInput, entry.breakDuration ?? "");
 
   const entryDelayInput = document.createElement("input");
-  setupMinuteFieldInput(entryDelayInput, entry.entryDelay || "");
+  setupMinuteFieldInput(entryDelayInput, entry.entryDelay ?? "");
 
   const waitLimitInput = document.createElement("input");
-  setupMinuteFieldInput(waitLimitInput, entry.waitLimit || "");
+  setupMinuteFieldInput(waitLimitInput, entry.waitLimit ?? "");
 
   const actionCell = document.createElement("div");
   actionCell.className = "action-cell";
@@ -360,23 +360,23 @@ async function saveOptions(event) {
     if (timeLimit != null) {
       timeLimits[key] = timeLimit;
     }
-    const breakAfter = parsePositiveLimit(breakAfterInput.value);
+    const breakAfter = parseNonNegativeLimit(breakAfterInput.value);
     if (breakAfter != null) {
       breakAfterLimits[key] = breakAfter;
     }
-    const gracePeriod = parsePositiveLimit(gracePeriodInput.value);
+    const gracePeriod = parseNonNegativeLimit(gracePeriodInput.value);
     if (gracePeriod != null) {
       breakGraceLimits[key] = gracePeriod;
     }
-    const breakDuration = parsePositiveLimit(breakDurationInput.value);
+    const breakDuration = parseNonNegativeLimit(breakDurationInput.value);
     if (breakDuration != null) {
       breakDurationLimits[key] = breakDuration;
     }
-    const entryDelay = parsePositiveLimit(entryDelayInput.value);
+    const entryDelay = parseNonNegativeLimit(entryDelayInput.value);
     if (entryDelay != null) {
       entryDelayLimits[key] = entryDelay;
     }
-    const waitLimit = parsePositiveLimit(waitLimitInput.value);
+    const waitLimit = parseNonNegativeLimit(waitLimitInput.value);
     if (waitLimit != null) {
       waitLimits[key] = waitLimit;
     }

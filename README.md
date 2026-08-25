@@ -19,3 +19,8 @@ to clear today's totals.
 If updating, make sure to update the menu Extension info with what was most recently updated
 
 Per-site settings in Options include daily limits plus break controls (`Break after`, `Grace`, and `Block for`) so you can delay when forced-break countdown starts while still tracking daily usage.
+
+When a site is already at its configured tab limit, the new tab now shows a
+tab-limit page instead of closing automatically. The page lists the titles,
+addresses, and favicons of the site's other open tabs; choosing one closes it
+and continues to the requested page.

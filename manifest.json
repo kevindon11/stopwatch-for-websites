@@ -1,7 +1,7 @@
 {
   "name": "Site Stopwatch (Today)",
-  "version": "1.0.1",
-  "version_name": "2025-09-26 17:08 UTC (popup keeps timing)",
+  "version": "1.0.2",
+  "version_name": "2026-08-25 (interactive tab-limit page)",
   "manifest_version": 3,
   "description": "Counts up time spent today on selected sites while their tabs are active.",
   "permissions": ["storage", "tabs", "idle"],

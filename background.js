@@ -409,7 +409,7 @@ async function enforceTabLimit(tab, settings = null) {
       delete allowlist[match.key];
       await setTabLimitAllowlist(allowlist);
     }
-    await chrome.tabs.remove(tab.id);
+    await showTabLimitPage(tab, match);
     return;
   }
 
@@ -424,7 +424,52 @@ async function enforceTabLimit(tab, settings = null) {
   if (matching.length <= limit) return;
 
   if (allowedIds.has(tab.id)) return;
-  await chrome.tabs.remove(tab.id);
+  await showTabLimitPage(tab, match);
+}
+
+async function showTabLimitPage(tab, match) {
+  const targetUrl = getUrlFromTab(tab);
+  if (!Number.isInteger(tab?.id) || !targetUrl || !match?.key) return;
+  const pageUrl = new URL(chrome.runtime.getURL("tab-limit.html"));
+  pageUrl.searchParams.set("target", targetUrl);
+  pageUrl.searchParams.set("key", match.key);
+  await chrome.tabs.update(tab.id, { url: pageUrl.href }).catch(() => {});
+}
+
+function tabLimitCandidate(tab) {
+  return {
+    id: tab.id,
+    title: tab.title || "Untitled tab",
+    url: tab.url || tab.pendingUrl || "",
+    favIconUrl: tab.favIconUrl || "",
+    active: !!tab.active,
+    windowId: tab.windowId,
+  };
+}
+
+async function getTabLimitContext(senderTab, target, requestedKey) {
+  if (!Number.isInteger(senderTab?.id) || !target) return null;
+  const settings = await getSettings();
+  let targetUrl;
+  try {
+    targetUrl = new URL(target);
+  } catch {
+    return null;
+  }
+  const match = getMatchForUrl(targetUrl, settings.trackedSites);
+  if (!match || match.key !== requestedKey) return null;
+  const limit = Number(settings.tabLimits?.[match.key]);
+  if (!Number.isFinite(limit) || limit < 0) return null;
+  const matching = await getTabsByKey(match.key, settings.trackedSites);
+  return {
+    key: match.key,
+    limit,
+    target: targetUrl.href,
+    canContinue: matching.length < limit,
+    tabs: matching
+      .filter((tab) => Number.isInteger(tab.id) && tab.id !== senderTab.id)
+      .map(tabLimitCandidate),
+  };
 }
 
 async function sendTabStatusForKey(key, settings) {
@@ -1027,6 +1072,54 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
+    if (msg?.type === "GET_TAB_LIMIT_CONTEXT") {
+      const context = await getTabLimitContext(
+        sender?.tab,
+        msg.target,
+        msg.key,
+      );
+      sendResponse(context ? { ok: true, context } : { ok: false });
+      return;
+    }
+
+    if (msg?.type === "CLOSE_TAB_AND_CONTINUE") {
+      const context = await getTabLimitContext(
+        sender?.tab,
+        msg.target,
+        msg.key,
+      );
+      const selectedId = Number(msg.tabId);
+      const selected = context?.tabs.find((tab) => tab.id === selectedId);
+      if (!context || !selected) {
+        sendResponse({ ok: false, error: "That tab is no longer available." });
+        return;
+      }
+      await chrome.tabs.remove(selectedId);
+      const allowlist = await getTabLimitAllowlist();
+      allowlist[context.key] = Array.from(
+        new Set([...(allowlist[context.key] || []), sender.tab.id]),
+      );
+      await setTabLimitAllowlist(allowlist);
+      await chrome.tabs.update(sender.tab.id, { url: context.target });
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "CONTINUE_AFTER_TAB_CLOSED") {
+      const context = await getTabLimitContext(
+        sender?.tab,
+        msg.target,
+        msg.key,
+      );
+      if (!context?.canContinue) {
+        sendResponse({ ok: false });
+        return;
+      }
+      await chrome.tabs.update(sender.tab.id, { url: context.target });
+      sendResponse({ ok: true });
+      return;
+    }
+
     if (msg?.type === "GET_TODAY_TIMES") {
       const key = todayKey();
       const storeKey = `time_${key}`;

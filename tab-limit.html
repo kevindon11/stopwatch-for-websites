@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tab limit reached</title>
+    <link rel="stylesheet" href="tab-limit.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel" aria-labelledby="page-title">
+        <div class="limit-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <p class="eyebrow" id="site-name">Site Stopwatch</p>
+        <h1 id="page-title">You've reached your tab limit</h1>
+        <p class="intro">Please close another tab to continue to this site.</p>
+
+        <div class="summary" id="summary" aria-live="polite"></div>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+        <div class="tab-list" id="tab-list" aria-label="Open tabs for this site"></div>
+      </section>
+    </main>
+    <script src="tab-limit.js"></script>
+  </body>
+</html>
